@@ -14,7 +14,7 @@ export const UnauthorizedView: React.FC<UnauthorizedViewProps> = ({
   actionName = 'Requested Intervention',
   onBack
 }) => {
-  const { user, switchPersona } = useAuth();
+  const { user, switchPersona, isDevMode } = useAuth();
 
   return (
     <div className="p-6 rounded-2xl border border-rose-900/60 bg-slate-900/90 shadow-xl space-y-4 max-w-lg mx-auto text-center">
@@ -51,7 +51,7 @@ export const UnauthorizedView: React.FC<UnauthorizedViewProps> = ({
         The Chief backend rejected this invocation. Under strict RBAC enforcement, client-side privileges cannot be fabricated or escalated.
       </p>
 
-      {/* Persona switch shortcut for easy evaluation */}
+      {/* Action buttons: Persona switch is DEV ONLY */}
       <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2 text-xs font-mono">
         {onBack && (
           <button
@@ -62,13 +62,16 @@ export const UnauthorizedView: React.FC<UnauthorizedViewProps> = ({
             <span>Return to Safe View</span>
           </button>
         )}
-        <button
-          onClick={() => switchPersona('owner')}
-          className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-800 flex items-center justify-center gap-1.5 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Switch to Owner (Evaluate Action)</span>
-        </button>
+        {isDevMode && (
+          <button
+            onClick={() => switchPersona('owner')}
+            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-amber-600 flex items-center justify-center gap-1.5 transition-colors"
+            title="[DEV ONLY] Switch to Owner for capability testing"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+            <span>Switch to Owner (DEV Mode Only)</span>
+          </button>
+        )}
       </div>
 
     </div>

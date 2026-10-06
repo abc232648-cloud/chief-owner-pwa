@@ -19,6 +19,7 @@ import {
   DataProvenance 
 } from '../api';
 import { useAuth } from './AuthContext';
+import { isChiefDevMode } from '../config/devMode';
 
 interface ChiefContextType {
   state: ChiefState;
@@ -147,8 +148,12 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // Connectivity toggle
+  // Connectivity toggle (DEV-only manual simulation)
   const toggleConnectivity = () => {
+    if (!isChiefDevMode()) {
+      console.warn('[Chief Security] Manual connectivity cycling is disabled in production.');
+      return;
+    }
     setState(prev => {
       let nextMode: ConnectivityMode = 'online';
       let nextStatus = prev.status_message;
@@ -179,6 +184,7 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const setConnectivity = (mode: ConnectivityMode) => {
+    if (!isChiefDevMode()) return;
     setState(prev => ({
       ...prev,
       connectivity: mode,
@@ -193,6 +199,10 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const setStatusMessage = (newStatus: StatusMessageOption) => {
+    if (!isChiefDevMode()) {
+      console.warn('[Chief Security] Manual status message override is disabled in production.');
+      return;
+    }
     setState(prev => ({
       ...prev,
       status_message: newStatus,
@@ -430,6 +440,10 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const resetState = () => {
+    if (!isChiefDevMode()) {
+      console.warn('[Chief Security] resetState is disabled in production.');
+      return;
+    }
     setSubmittingItemIds([]);
     setItemSubmissionErrors({});
     setState(prev => ({

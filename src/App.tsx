@@ -26,7 +26,7 @@ function MainAppShell() {
     forceSync, 
     isSyncing 
   } = useChief();
-  const { status } = useAuth();
+  const { status, isDevMode } = useAuth();
 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
@@ -34,7 +34,23 @@ function MainAppShell() {
 
   // 1. Unauthenticated or Authenticating State
   if (status === 'unauthenticated' || status === 'authenticating') {
-    return <LoginScreen />;
+    return (
+      <div className="min-h-full flex flex-col">
+        {isDevMode && (
+          <aside aria-label="Development environment warning" className="bg-amber-500 text-black px-3 py-1.5 text-xs font-mono font-bold flex flex-wrap items-center justify-between gap-1 border-b border-amber-600 shadow-md sticky top-0 z-50">
+            <div className="flex items-center gap-2">
+              <span className="px-1.5 py-0.5 bg-black text-amber-300 rounded text-[10px] tracking-wider uppercase font-black">
+                DEVELOPMENT / SIMULATION MODE
+              </span>
+              <span className="text-[11px] font-semibold text-black/90">
+                Identity, connectivity, and operational states may be synthetic and are not authoritative Chief state.
+              </span>
+            </div>
+          </aside>
+        )}
+        <LoginScreen />
+      </div>
+    );
   }
 
   // 2. Backend Unavailable State
@@ -46,6 +62,20 @@ function MainAppShell() {
   return (
     <div className="min-h-full flex flex-col bg-[#021209] text-emerald-50 selection:bg-emerald-600/30 selection:text-emerald-200">
       
+      {/* Persistent Global DEV Warning Banner */}
+      {isDevMode && (
+        <aside aria-label="Development environment warning" className="bg-amber-500 text-black px-3 py-1.5 text-xs font-mono font-bold flex flex-wrap items-center justify-between gap-1 border-b border-amber-600 shadow-md sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            <span className="px-1.5 py-0.5 bg-black text-amber-300 rounded text-[10px] tracking-wider uppercase font-black">
+              DEVELOPMENT / SIMULATION MODE
+            </span>
+            <span className="text-[11px] font-semibold text-black/90">
+              Identity, connectivity, and operational states may be synthetic and are not authoritative Chief state.
+            </span>
+          </div>
+        </aside>
+      )}
+
       {/* 1. Header (Sticky Top Bar Contract) */}
       <Header
         statusMessage={state.status_message}

@@ -41,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   onOpenOfflineQueue
 }) => {
-  const { user, logout, expireSession, setBackendUnavailable, switchPersona } = useAuth();
+  const { user, logout, expireSession, setBackendUnavailable, switchPersona, isDevMode } = useAuth();
   const { pendingCount, conflictCount, queue } = useOfflineQueue();
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -93,27 +93,39 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* ZONE 2: OPERATIONAL STATUS & HEALTH BADGE */}
           <div className="relative">
-            <button
-              onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${currentTheme.bg} ${currentTheme.border} ${currentTheme.text} hover:brightness-110`}
-              title="Click to switch simulated system status"
-              aria-label="Change system status state"
-            >
-              <span className={`w-2 h-2 rounded-full ${currentTheme.dot} ${statusMessage === 'System operational' ? 'animate-pulse' : ''}`} />
-              <span className="whitespace-nowrap font-medium">{statusMessage}</span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-            </button>
+            {isDevMode ? (
+              <button
+                onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${currentTheme.bg} ${currentTheme.border} ${currentTheme.text} hover:brightness-110`}
+                title="[DEV Simulation Tooling] Click to switch simulated system status"
+                aria-label="Change system status state (DEV Mode)"
+              >
+                <span className={`w-2 h-2 rounded-full ${currentTheme.dot} ${statusMessage === 'System operational' ? 'animate-pulse' : ''}`} />
+                <span className="whitespace-nowrap font-medium">{statusMessage}</span>
+                <span className="text-[10px] bg-amber-950 text-amber-300 px-1 py-0.2 rounded border border-amber-800/80 uppercase font-mono">DEV</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+              </button>
+            ) : (
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${currentTheme.bg} ${currentTheme.border} ${currentTheme.text}`}
+                title="Authoritative Chief system status"
+              >
+                <span className={`w-2 h-2 rounded-full ${currentTheme.dot} ${statusMessage === 'System operational' ? 'animate-pulse' : ''}`} />
+                <span className="whitespace-nowrap font-medium">{statusMessage}</span>
+              </div>
+            )}
 
-            {/* Dropdown Options */}
-            {showStatusDropdown && (
+            {/* Dropdown Options (DEV Mode Only) */}
+            {isDevMode && showStatusDropdown && (
               <>
                 <div 
                   className="fixed inset-0 z-40" 
                   onClick={() => setShowStatusDropdown(false)} 
                 />
                 <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-64 rounded-xl border border-emerald-800/60 bg-[#062416] shadow-2xl z-50 p-1 py-1.5 divide-y divide-emerald-900/50">
-                  <div className="px-3 py-1 text-[11px] font-mono uppercase text-emerald-300/60 tracking-wider">
-                    Authoritative Status State
+                  <div className="px-3 py-1 text-[11px] font-mono uppercase text-amber-300/80 tracking-wider flex items-center justify-between">
+                    <span>Simulated Status State</span>
+                    <span className="text-[10px] text-amber-400 font-bold">[DEV]</span>
                   </div>
                   <div className="py-1">
                     {statusOptions.map((opt) => (
@@ -145,35 +157,66 @@ export const Header: React.FC<HeaderProps> = ({
           {/* ZONE 3: OPERATIONAL TELEMETRY & ACTIONS */}
           <div className="flex items-center gap-2 sm:gap-4">
             
-            {/* Connectivity Indicator */}
-            <button
-              onClick={onConnectivityToggle}
-              className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-colors border ${
-                connectivity === 'online'
-                  ? 'border-emerald-900/50 text-emerald-300 hover:border-emerald-800/80 bg-[#062215]/80'
-                  : connectivity === 'pending'
-                  ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
-                  : 'border-rose-900/60 text-rose-400 bg-rose-950/30'
-              }`}
-              title="Click to cycle connectivity state (Online / Offline / Pending)"
-            >
-              {connectivity === 'online' ? (
-                <>
-                  <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Online</span>
-                </>
-              ) : connectivity === 'pending' ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                  <span>Sync Pending</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Offline</span>
-                </>
-              )}
-            </button>
+            {/* Connectivity Indicator (Interactive ONLY in DEV mode) */}
+            {isDevMode ? (
+              <button
+                onClick={onConnectivityToggle}
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-colors border ${
+                  connectivity === 'online'
+                    ? 'border-emerald-900/50 text-emerald-300 hover:border-emerald-800/80 bg-[#062215]/80'
+                    : connectivity === 'pending'
+                    ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
+                    : 'border-rose-900/60 text-rose-400 bg-rose-950/30'
+                }`}
+                title="[DEV Simulation Tooling] Click to cycle connectivity state"
+              >
+                {connectivity === 'online' ? (
+                  <>
+                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Online</span>
+                  </>
+                ) : connectivity === 'pending' ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                    <span>Sync Pending</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Offline</span>
+                  </>
+                )}
+                <span className="text-[9px] text-amber-400 font-bold ml-0.5">DEV</span>
+              </button>
+            ) : (
+              <div
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono border ${
+                  connectivity === 'online'
+                    ? 'border-emerald-900/50 text-emerald-300 bg-[#062215]/80'
+                    : connectivity === 'pending'
+                    ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
+                    : 'border-rose-900/60 text-rose-400 bg-rose-950/30'
+                }`}
+                title="Authoritative network link state"
+              >
+                {connectivity === 'online' ? (
+                  <>
+                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Online</span>
+                  </>
+                ) : connectivity === 'pending' ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                    <span>Sync Pending</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Offline</span>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Offline Queue Inspector Button */}
             {onOpenOfflineQueue && (
@@ -258,61 +301,80 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="px-3 py-2 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-white truncate">{user?.name}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-bold uppercase">
-                          {user?.role}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          {user?.isSimulated && (
+                            <span className="px-1 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[9px] font-bold">
+                              SIMULATED
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-bold uppercase">
+                            {user?.role}
+                          </span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-emerald-200/70 truncate">{user?.email}</p>
                       <p className="text-[10px] text-emerald-300/50">Authority: {user?.authAuthority}</p>
                     </div>
 
-                    {/* Switch Persona */}
-                    <div className="py-2 px-1 space-y-1">
-                      <span className="text-[10px] text-emerald-200/60 uppercase tracking-wider px-2 block font-semibold">
-                        Switch Role / Persona:
-                      </span>
-                      {(['owner', 'manager', 'worker', 'viewer'] as UserRole[]).map((r) => (
+                    {/* Switch Persona (DEV MODE ONLY) */}
+                    {isDevMode && (
+                      <div className="py-2 px-1 space-y-1">
+                        <div className="flex items-center justify-between px-2">
+                          <span className="text-[10px] text-amber-300 uppercase tracking-wider block font-semibold">
+                            Switch Role / Persona:
+                          </span>
+                          <span className="text-[9px] text-amber-400 font-bold bg-amber-950 px-1 py-0.2 rounded border border-amber-800">
+                            DEV ONLY
+                          </span>
+                        </div>
+                        {(['owner', 'manager', 'worker', 'viewer'] as UserRole[]).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => {
+                              switchPersona(r);
+                              setShowUserMenu(false);
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
+                              user?.role === r 
+                                ? 'bg-[#0e3b23] text-emerald-300 font-bold' 
+                                : 'text-emerald-100/80 hover:bg-[#0a2e1b]'
+                            }`}
+                          >
+                            <span className="capitalize">{r}</span>
+                            {user?.role === r && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* State Simulation Actions (DEV MODE ONLY) */}
+                    {isDevMode && (
+                      <div className="py-1.5 px-1 space-y-1">
+                        <div className="px-2 text-[10px] text-amber-300/80 font-bold uppercase">
+                          Simulation Testing:
+                        </div>
                         <button
-                          key={r}
                           onClick={() => {
-                            switchPersona(r);
+                            expireSession();
                             setShowUserMenu(false);
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between transition-colors ${
-                            user?.role === r 
-                              ? 'bg-[#0e3b23] text-emerald-300 font-bold' 
-                              : 'text-emerald-100/80 hover:bg-[#0a2e1b]'
-                          }`}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-amber-300 hover:bg-amber-950/40 flex items-center gap-2 transition-colors"
                         >
-                          <span className="capitalize">{r}</span>
-                          {user?.role === r && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Simulate Session Expiry</span>
                         </button>
-                      ))}
-                    </div>
-
-                    {/* State Simulation Actions */}
-                    <div className="py-1.5 px-1 space-y-1">
-                      <button
-                        onClick={() => {
-                          expireSession();
-                          setShowUserMenu(false);
-                        }}
-                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-amber-300 hover:bg-amber-950/40 flex items-center gap-2 transition-colors"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Simulate Session Expiry</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setBackendUnavailable();
-                          setShowUserMenu(false);
-                        }}
-                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-rose-300 hover:bg-rose-950/40 flex items-center gap-2 transition-colors"
-                      >
-                        <ServerCrash className="w-3.5 h-3.5 text-rose-400" />
-                        <span>Simulate Backend Unavailable</span>
-                      </button>
-                    </div>
+                        <button
+                          onClick={() => {
+                            setBackendUnavailable();
+                            setShowUserMenu(false);
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-rose-300 hover:bg-rose-950/40 flex items-center gap-2 transition-colors"
+                        >
+                          <ServerCrash className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Simulate Backend Unavailable</span>
+                        </button>
+                      </div>
+                    )}
 
                     {/* Log Out */}
                     <div className="pt-1.5 px-1">

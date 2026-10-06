@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthStatus, UserSession, UserRole, UserCapability, AuthError } from '../types/auth';
+import { isChiefDevMode, setChiefDevMode } from '../config/devMode';
 
 export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
   owner: {
@@ -22,8 +23,9 @@ export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
     ],
     sessionExpiresAt: Date.now() + 1000 * 60 * 60 * 8, // 8 hours
     sessionTokenRef: 'sess_ref_8f92a1_owner',
-    authAuthority: 'Backend Chief Authority Service',
-    lastAuthenticated: 'Today at 08:30 AM'
+    authAuthority: 'DEV Persona Simulation — Not Real Chief Auth',
+    lastAuthenticated: 'Today at 08:30 AM',
+    isSimulated: true
   },
   manager: {
     userId: 'usr-mgr-02',
@@ -43,8 +45,9 @@ export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
     ],
     sessionExpiresAt: Date.now() + 1000 * 60 * 60 * 4,
     sessionTokenRef: 'sess_ref_7b31c4_manager',
-    authAuthority: 'Backend Chief Authority Service',
-    lastAuthenticated: 'Today at 08:45 AM'
+    authAuthority: 'DEV Persona Simulation — Not Real Chief Auth',
+    lastAuthenticated: 'Today at 08:45 AM',
+    isSimulated: true
   },
   worker: {
     userId: 'usr-wrk-03',
@@ -59,8 +62,9 @@ export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
     ],
     sessionExpiresAt: Date.now() + 1000 * 60 * 60 * 2,
     sessionTokenRef: 'sess_ref_5c12e8_worker',
-    authAuthority: 'Backend Chief Authority Service',
-    lastAuthenticated: 'Today at 09:00 AM'
+    authAuthority: 'DEV Persona Simulation — Not Real Chief Auth',
+    lastAuthenticated: 'Today at 09:00 AM',
+    isSimulated: true
   },
   viewer: {
     userId: 'usr-viw-04',
@@ -73,8 +77,9 @@ export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
     ],
     sessionExpiresAt: Date.now() + 1000 * 60 * 30,
     sessionTokenRef: 'sess_ref_3d88a2_viewer',
-    authAuthority: 'Backend Chief Authority Service',
-    lastAuthenticated: 'Today at 09:15 AM'
+    authAuthority: 'DEV Persona Simulation — Not Real Chief Auth',
+    lastAuthenticated: 'Today at 09:15 AM',
+    isSimulated: true
   }
 };
 
@@ -82,6 +87,8 @@ interface AuthContextType {
   status: AuthStatus;
   user: UserSession | null;
   error: AuthError | null;
+  isDevMode: boolean;
+  toggleDevMode: () => void;
   login: (role?: UserRole) => Promise<boolean>;
   logout: () => void;
   reauthenticate: () => Promise<boolean>;
@@ -100,11 +107,28 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Start with default authenticated Owner persona for seamless operational baseline
-  const [user, setUser] = useState<UserSession | null>(PRESET_PERSONAS.owner);
-  const [status, setStatus] = useState<AuthStatus>('authenticated');
+  // DEV Mode determination
+  const [devMode, setDevModeState] = useState<boolean>(() => isChiefDevMode());
+
+  // In normal production mode:
+  // - initial user must be null
+  // - initial auth status must be unauthenticated
+  // - no Owner/Manager/Worker/Viewer identity may be granted client-side
+  const [user, setUser] = useState<UserSession | null>(null);
+  const [status, setStatus] = useState<AuthStatus>('unauthenticated');
   const [error, setError] = useState<AuthError | null>(null);
   const [lastDeniedAction, setLastDeniedAction] = useState<{ action: string; requiredCapability: UserCapability } | null>(null);
+
+  const toggleDevMode = () => {
+    const nextState = !devMode;
+    setDevModeState(nextState);
+    setChiefDevMode(nextState);
+    if (!nextState && user?.isSimulated) {
+      // Exiting DEV mode cleanses any synthetic persona session
+      setUser(null);
+      setStatus('unauthenticated');
+    }
+  };
 
   // Check for session expiry automatically
   useEffect(() => {
@@ -120,22 +144,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (role: UserRole = 'owner'): Promise<boolean> => {
     setStatus('authenticating');
     setError(null);
-    // Simulate authoritative secure handshake with Chief Auth Backend
+
+    // Production mode must NOT fabricate successful Chief session
+    if (!devMode) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          setStatus('unauthenticated');
+          setError({
+            code: 'AUTH_SERVICE_UNAVAILABLE',
+            message: 'Chief Authentication Service is not connected. Real Chief auth endpoint (/api/v1/auth) is not provisioned. Production logins cannot be fabricated client-side.'
+          });
+          resolve(false);
+        }, 600);
+      });
+    }
+
+    // DEV mode only: simulated persona sign-in clearly tagged as synthetic
     return new Promise((resolve) => {
       setTimeout(() => {
-        const selectedUser = {
+        const selectedUser: UserSession = {
           ...PRESET_PERSONAS[role],
           sessionExpiresAt: Date.now() + 1000 * 60 * 60 * 8,
-          lastAuthenticated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          lastAuthenticated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          authAuthority: 'DEV Simulation Persona — Not Real Chief Auth',
+          isSimulated: true
         };
         setUser(selectedUser);
         setStatus('authenticated');
         resolve(true);
-      }, 700);
+      }, 500);
     });
   };
 
   const reauthenticate = async (): Promise<boolean> => {
+    if (!devMode) {
+      setStatus('unauthenticated');
+      return false;
+    }
     if (!user) return login('owner');
     return login(user.role);
   };
@@ -148,22 +193,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const expireSession = () => {
+    if (!devMode) return;
     setStatus('session_expired');
   };
 
   const setBackendUnavailable = () => {
+    if (!devMode) return;
     setStatus('backend_unavailable');
   };
 
   const recoverBackend = () => {
+    if (!devMode) return;
     setStatus(user ? 'authenticated' : 'unauthenticated');
   };
 
   const switchPersona = (role: UserRole) => {
-    const updated = {
+    // When DEV mode is OFF, persona switching is strictly forbidden
+    if (!devMode) {
+      console.warn('[Chief Security Policy] Persona switching is disabled in production.');
+      return;
+    }
+
+    const updated: UserSession = {
       ...PRESET_PERSONAS[role],
       sessionExpiresAt: Date.now() + 1000 * 60 * 60 * 8,
-      lastAuthenticated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      lastAuthenticated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      authAuthority: 'DEV Simulation Persona — Not Real Chief Auth',
+      isSimulated: true
     };
     setUser(updated);
     setStatus('authenticated');
@@ -200,6 +256,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status,
         user,
         error,
+        isDevMode: devMode,
+        toggleDevMode,
         login,
         logout,
         reauthenticate,

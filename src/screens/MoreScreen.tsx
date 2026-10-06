@@ -38,7 +38,8 @@ export const MoreScreen: React.FC = () => {
     switchPersona, 
     expireSession, 
     setBackendUnavailable, 
-    logout 
+    logout,
+    isDevMode 
   } = useAuth();
 
   const [isSystemDetailsOpen, setIsSystemDetailsOpen] = useState(false);
@@ -82,15 +83,21 @@ export const MoreScreen: React.FC = () => {
               <span className="text-slate-200">{user?.email}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-400">Token Reference:</span>
-              <span className="text-emerald-400/90">{user?.sessionTokenRef}</span>
+              <span className="text-slate-400">Session Status:</span>
+              <span className="text-emerald-400/90 font-medium">
+                {user?.isSimulated ? 'Simulated Session (DEV)' : user ? 'Active / Handshake Verified' : 'Unauthenticated'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Last Verified:</span>
+              <span className="text-slate-300">{user?.lastAuthenticated || 'N/A'}</span>
             </div>
           </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-slate-400">
               <span className="text-[11px] uppercase tracking-wider font-semibold">
-                Backend Capabilities ({user?.capabilities.length} Granted):
+                Backend Capabilities ({user?.capabilities.length || 0} Granted):
               </span>
               <span className="text-[10px] text-emerald-400">Policy-Enforced</span>
             </div>
@@ -107,45 +114,57 @@ export const MoreScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-800/80 space-y-2">
-            <span className="text-[11px] text-slate-400 uppercase tracking-wider block font-semibold">
-              Switch Persona (For Capability &amp; RBAC Testing):
-            </span>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(['owner', 'manager', 'worker', 'viewer'] as UserRole[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => switchPersona(r)}
-                  className={`p-2 rounded-xl text-center capitalize border transition-all ${
-                    user?.role === r 
-                      ? 'bg-emerald-950 border-emerald-600 text-white font-bold shadow-sm' 
-                      : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <span>{r}</span>
-                </button>
-              ))}
+          {/* Switch Persona (DEV MODE ONLY) */}
+          {isDevMode && (
+            <div className="pt-2 border-t border-slate-800/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-amber-300 uppercase tracking-wider block font-semibold">
+                  Switch Persona (Simulated Testing):
+                </span>
+                <span className="text-[10px] text-amber-400 font-bold bg-amber-950 px-2 py-0.5 rounded border border-amber-800">
+                  DEV ONLY
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(['owner', 'manager', 'worker', 'viewer'] as UserRole[]).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => switchPersona(r)}
+                    className={`p-2 rounded-xl text-center capitalize border transition-all ${
+                      user?.role === r 
+                        ? 'bg-emerald-950 border-amber-500 text-white font-bold shadow-sm ring-1 ring-amber-500/40' 
+                        : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                    }`}
+                  >
+                    <span>{r}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <ActionButton
-                variant="outline"
-                size="sm"
-                icon={<Clock className="w-3.5 h-3.5 text-amber-400" />}
-                onClick={expireSession}
-              >
-                Simulate Expiry
-              </ActionButton>
-              <ActionButton
-                variant="outline"
-                size="sm"
-                icon={<ServerCrash className="w-3.5 h-3.5 text-rose-400" />}
-                onClick={setBackendUnavailable}
-              >
-                Backend Unavailable
-              </ActionButton>
+              {isDevMode && (
+                <>
+                  <ActionButton
+                    variant="outline"
+                    size="sm"
+                    icon={<Clock className="w-3.5 h-3.5 text-amber-400" />}
+                    onClick={expireSession}
+                  >
+                    Simulate Expiry
+                  </ActionButton>
+                  <ActionButton
+                    variant="outline"
+                    size="sm"
+                    icon={<ServerCrash className="w-3.5 h-3.5 text-rose-400" />}
+                    onClick={setBackendUnavailable}
+                  >
+                    Simulate Backend Drop
+                  </ActionButton>
+                </>
+              )}
             </div>
             <ActionButton
               variant="destructive"
@@ -159,65 +178,72 @@ export const MoreScreen: React.FC = () => {
         </div>
       </Card>
 
-      {/* Operational Simulation Controls */}
-      <Card
-        title="Simulated State & Connectivity"
-        subtitle="Test client reaction across authoritative backend scenarios"
-      >
-        <div className="space-y-3">
-          
-          <div>
-            <label className="text-[11px] font-mono text-slate-400 block mb-1.5 uppercase">
-              Authoritative Status Condition
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {STATUS_OPTIONS.map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => setStatusMessage(opt)}
-                  className={`px-2.5 py-2 rounded-xl text-left text-[11px] font-mono transition-colors border ${
-                    state.status_message === opt 
-                      ? 'bg-emerald-950 border-emerald-600 text-emerald-300 font-semibold' 
-                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900'
-                  }`}
+      {/* Operational Simulation Controls (DEV MODE ONLY) */}
+      {isDevMode && (
+        <Card
+          title="[DEV TOOLING] Simulated State & Connectivity"
+          subtitle="Test client reaction across synthetic backend conditions"
+          action={
+            <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 text-[10px] font-mono font-bold">
+              DEV ONLY
+            </span>
+          }
+        >
+          <div className="space-y-3">
+            
+            <div>
+              <label className="text-[11px] font-mono text-amber-300 block mb-1.5 uppercase font-semibold">
+                Simulate Status Condition (Non-authoritative override)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {STATUS_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setStatusMessage(opt)}
+                    className={`px-2.5 py-2 rounded-xl text-left text-[11px] font-mono transition-colors border ${
+                      state.status_message === opt 
+                        ? 'bg-emerald-950 border-emerald-600 text-emerald-300 font-semibold' 
+                        : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900'
+                    }`}
+                  >
+                    <span className="truncate block">{opt}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-slate-400">Current link:</span>
+                <StatusBadge
+                  label={state.connectivity === 'online' ? 'Online' : state.connectivity === 'offline' ? 'Offline' : 'Sync Pending'}
+                  variant={state.connectivity === 'online' ? 'nominal' : state.connectivity === 'offline' ? 'critical' : 'pending'}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <ActionButton
+                  variant="outline"
+                  size="sm"
+                  icon={<Wifi className="w-3.5 h-3.5" />}
+                  onClick={toggleConnectivity}
                 >
-                  <span className="truncate block">{opt}</span>
-                </button>
-              ))}
+                  Cycle Link Mode
+                </ActionButton>
+                <ActionButton
+                  variant="secondary"
+                  size="sm"
+                  icon={<RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />}
+                  onClick={forceSync}
+                  disabled={isSyncing}
+                >
+                  Force Sync
+                </ActionButton>
+              </div>
             </div>
-          </div>
 
-          <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-slate-400">Current link:</span>
-              <StatusBadge
-                label={state.connectivity === 'online' ? 'Online' : state.connectivity === 'offline' ? 'Offline' : 'Sync Pending'}
-                variant={state.connectivity === 'online' ? 'nominal' : state.connectivity === 'offline' ? 'critical' : 'pending'}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <ActionButton
-                variant="outline"
-                size="sm"
-                icon={<Wifi className="w-3.5 h-3.5" />}
-                onClick={toggleConnectivity}
-              >
-                Cycle Link Mode
-              </ActionButton>
-              <ActionButton
-                variant="secondary"
-                size="sm"
-                icon={<RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-400' : ''}`} />}
-                onClick={forceSync}
-                disabled={isSyncing}
-              >
-                Force Sync
-              </ActionButton>
-            </div>
           </div>
-
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Chief API Client & Data Access Layer Card */}
       <Card
@@ -334,12 +360,14 @@ export const MoreScreen: React.FC = () => {
           showChevron
           onClick={() => setIsSystemDetailsOpen(true)}
         />
-        <ListItem
-          title="Reset Demo State"
-          subtitle="Restore sample queue to initial authoritative baseline"
-          icon={<RotateCcw className="w-4 h-4 text-slate-400" />}
-          onClick={resetState}
-        />
+        {isDevMode && (
+          <ListItem
+            title="[DEV TOOLING] Reset Demo State"
+            subtitle="Restore sample queue to initial development baseline (DEV ONLY)"
+            icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
+            onClick={resetState}
+          />
+        )}
       </div>
 
       {/* System Details Modal */}

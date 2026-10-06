@@ -34,7 +34,7 @@ export const InboxScreen: React.FC = () => {
     isItemSubmitting,
     itemSubmissionErrors
   } = useChief();
-  const { hasCapability, user } = useAuth();
+  const { hasCapability, user, isDevMode } = useAuth();
   const { isEffectivelyOffline } = useOfflineQueue();
 
   const [activeTab, setActiveTab] = useState<'all' | 'stop' | 'ask' | 'warning' | 'info' | 'resolved'>('all');
@@ -237,14 +237,16 @@ export const InboxScreen: React.FC = () => {
             Priority Hierarchy: <strong className="text-rose-400">STOP</strong> &gt; <strong className="text-amber-400">ASK / Approval</strong> &gt; <strong className="text-amber-300/80">Warning</strong> &gt; <strong className="text-cyan-400">Information</strong>
           </p>
         </div>
-        <button
-          onClick={resetState}
-          className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-800/60 text-xs font-mono text-emerald-300/80 hover:text-white bg-[#062416] hover:bg-[#0a2f1c] transition-colors shadow-sm"
-          title="Reset to authoritative baseline queue"
-        >
-          <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Reset Queue Baseline</span>
-        </button>
+        {isDevMode && (
+          <button
+            onClick={resetState}
+            className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-800/80 text-xs font-mono text-amber-300 hover:text-white bg-[#191003] hover:bg-[#251705] transition-colors shadow-sm"
+            title="[DEV ONLY] Reset to authoritative baseline queue"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>[DEV] Reset Baseline</span>
+          </button>
+        )}
       </div>
 
       {/* Offline Safety Declaration */}

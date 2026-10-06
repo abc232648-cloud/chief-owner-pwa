@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChief } from '../context/ChiefContext';
+import { useAuth } from '../context/AuthContext';
 import { FarmOperationalMode } from '../types/chief';
 import { Card } from '../components/ui/Card';
 import { AgentStatusBadge } from '../components/ui/AgentStatusBadge';
@@ -24,6 +25,7 @@ import {
 export const AgentsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { state } = useChief();
+  const { isDevMode } = useAuth();
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [farmModeOverride, setFarmModeOverride] = useState<FarmOperationalMode | null>(null);
@@ -92,7 +94,10 @@ export const AgentsScreen: React.FC = () => {
       <div className="space-y-4">
         {filteredAgents.map((agent) => {
           const isFarm = agent.agent_id === 'farm_agent';
-          const effectiveMode = isFarm && farmModeOverride ? farmModeOverride : (agent.operationalMode || (agent.simulation_warning ? 'SIMULATION' : undefined));
+          // In production, mode strictly comes from Chief backend state
+          const effectiveMode = isFarm && isDevMode && farmModeOverride 
+            ? farmModeOverride 
+            : (agent.operationalMode || (agent.simulation_warning ? 'SIMULATION' : undefined));
 
           return (
             <Card
@@ -132,15 +137,15 @@ export const AgentsScreen: React.FC = () => {
                 {agent.summary || agent.description}
               </div>
 
-              {/* Farm Agent Visible Distinction Switcher */}
-              {isFarm && (
-                <div className="p-3 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-2">
+              {/* Farm Agent Visible Distinction Switcher (DEV MODE ONLY) */}
+              {isFarm && isDevMode && (
+                <div className="p-3 rounded-xl border border-amber-900/60 bg-[#0c1403] space-y-2">
                   <div className="flex items-center justify-between text-[11px] font-mono">
-                    <span className="text-emerald-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      Hardware Provenance State Verification:
+                    <span className="text-amber-300 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      [DEV SIMULATION TOOLING] Mode Override:
                     </span>
-                    <span className="text-emerald-300/60 text-[10px]">
+                    <span className="text-amber-400/80 text-[10px]">
                       Selected: <strong className="text-white">{effectiveMode}</strong>
                     </span>
                   </div>

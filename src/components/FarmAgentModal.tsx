@@ -22,6 +22,7 @@ import { AgentState } from '../types/chief';
 import { FarmOperatingMode } from '../types/farmAgent';
 import { useWorkerReports } from '../context/WorkerReportContext';
 import { useOfflineQueue } from '../context/OfflineQueueContext';
+import { useAuth } from '../context/AuthContext';
 import { WorkerReportModal } from './worker/WorkerReportModal';
 import { 
   INITIAL_POULTRY_FLOCKS, 
@@ -56,9 +57,14 @@ type FarmTab =
 export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
   isOpen,
   onClose,
+  agent,
   onNavigateToApprovals
 }) => {
-  const [operatingMode, setOperatingMode] = useState<FarmOperatingMode>('SIMULATION');
+  const { isDevMode } = useAuth();
+  const backendMode: FarmOperatingMode = (agent?.operationalMode as FarmOperatingMode) || 'SIMULATION';
+  const [devModeOverride, setDevModeOverride] = useState<FarmOperatingMode | null>(null);
+  const operatingMode: FarmOperatingMode = isDevMode && devModeOverride ? devModeOverride : backendMode;
+
   const [activeTab, setActiveTab] = useState<FarmTab>('overview');
   const [isWorkerReportOpen, setIsWorkerReportOpen] = useState(false);
   const { reports: workerReports, queuedCount } = useWorkerReports();
@@ -148,29 +154,31 @@ export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
           </div>
 
           <div className="flex items-center gap-3 self-end sm:self-center">
-            <div className="flex items-center gap-1.5 bg-[#03140c] p-1 rounded-lg border border-emerald-950 text-xs font-mono">
-              <span className="text-emerald-400/60 text-[10px] uppercase px-1">Mode:</span>
-              {(['LIVE', 'SIMULATION', 'OFFLINE', 'NOT CONFIGURED', 'STALE'] as FarmOperatingMode[]).map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setOperatingMode(mode)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                    operatingMode === mode 
-                      ? mode === 'LIVE' 
-                        ? 'bg-emerald-600 text-white' 
-                        : mode === 'SIMULATION' 
-                        ? 'bg-amber-600 text-white' 
-                        : mode === 'NOT CONFIGURED' 
-                        ? 'bg-purple-600 text-white' 
-                        : 'bg-zinc-700 text-white' 
-                      : 'text-emerald-400/60 hover:text-white'
-                  }`}
-                >
-                  {mode.slice(0, 4)}
-                </button>
-              ))}
-            </div>
+            {isDevMode && (
+              <div className="flex items-center gap-1.5 bg-[#140b02] p-1 rounded-lg border border-amber-900/60 text-xs font-mono">
+                <span className="text-amber-400 text-[10px] uppercase px-1 font-bold">[DEV] Mode:</span>
+                {(['LIVE', 'SIMULATION', 'OFFLINE', 'NOT CONFIGURED', 'STALE'] as FarmOperatingMode[]).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setDevModeOverride(mode)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
+                      operatingMode === mode 
+                        ? mode === 'LIVE' 
+                          ? 'bg-emerald-600 text-white' 
+                          : mode === 'SIMULATION' 
+                          ? 'bg-amber-600 text-white' 
+                          : mode === 'NOT CONFIGURED' 
+                          ? 'bg-purple-600 text-white' 
+                          : 'bg-zinc-700 text-white' 
+                        : 'text-amber-400/60 hover:text-white'
+                    }`}
+                  >
+                    {mode.slice(0, 4)}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-emerald-300/60 hover:text-white hover:bg-[#0a2e1b] transition-colors"

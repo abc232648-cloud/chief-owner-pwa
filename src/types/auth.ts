@@ -31,6 +31,7 @@ export interface UserSession {
   sessionTokenRef: string; // Sanitized opaque reference, never raw token/secret
   authAuthority: string;
   lastAuthenticated: string;
+  isSimulated?: boolean;
 }
 
 export interface AuthError {

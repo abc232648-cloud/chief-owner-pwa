@@ -52,7 +52,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
   onClose,
   initialCategory
 }) => {
-  const { user } = useAuth();
+  const { user, isDevMode } = useAuth();
   const { state: chiefState, toggleConnectivity } = useChief();
   const { 
     reports, 
@@ -418,13 +418,15 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={toggleConnectivity}
-              className="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-[#021209] hover:bg-[#062617] border-emerald-800 text-emerald-300"
-              title="Toggle network simulation to test offline queueing"
-            >
-              {isNetworkOffline ? 'Switch Online' : 'Simulate Offline'}
-            </button>
+            {isDevMode && (
+              <button
+                onClick={toggleConnectivity}
+                className="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-[#021209] hover:bg-[#062617] border-amber-600 text-amber-300"
+                title="[DEV ONLY] Toggle network simulation"
+              >
+                {isNetworkOffline ? 'Switch Online (DEV)' : 'Simulate Offline (DEV)'}
+              </button>
+            )}
             {queuedCount > 0 && (
               <button
                 onClick={syncQueuedReports}

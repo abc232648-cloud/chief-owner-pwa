@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useOfflineQueue } from '../../context/OfflineQueueContext';
 import { useChief } from '../../context/ChiefContext';
+import { useAuth } from '../../context/AuthContext';
 import { QueueItemStatus } from '../../types/queue';
 
 interface OfflineQueueModalProps {
@@ -44,6 +45,7 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
     cachedDataSources
   } = useOfflineQueue();
   const { toggleConnectivity } = useChief();
+  const { isDevMode } = useAuth();
 
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'conflict' | 'permanent_error' | 'synced'>('all');
   const [showPolicyGuidelines, setShowPolicyGuidelines] = useState(false);
@@ -196,13 +198,15 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={toggleConnectivity}
-              className="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-[#021209] hover:bg-[#062617] border-emerald-800 text-emerald-300"
-              title="Toggle network simulation"
-            >
-              {isEffectivelyOffline ? 'Switch Online' : 'Simulate Offline'}
-            </button>
+            {isDevMode && (
+              <button
+                onClick={toggleConnectivity}
+                className="px-2 py-0.5 rounded text-[10px] font-bold border transition-colors bg-[#021209] hover:bg-[#062617] border-amber-600 text-amber-300"
+                title="[DEV ONLY] Toggle network simulation"
+              >
+                {isEffectivelyOffline ? 'Switch Online (DEV)' : 'Simulate Offline (DEV)'}
+              </button>
+            )}
           </div>
         </div>
 
