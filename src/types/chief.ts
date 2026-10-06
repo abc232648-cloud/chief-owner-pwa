@@ -137,6 +137,9 @@ export interface ChiefState {
   pendingSyncCount: number;
   lastSyncLabel: string;
   lastSyncTimestamp: string;
+  cacheTimestamp?: number;
+  cacheAgeLabel?: string;
+  cacheTimeFormatted?: string;
   metrics: SystemMetrics;
   attentionItems: AttentionItem[];
   agents: AgentState[];

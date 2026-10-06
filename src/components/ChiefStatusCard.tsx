@@ -89,7 +89,10 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
             <span className={`text-sm font-semibold font-mono ${
               isLive ? 'text-white' : isUnavailable ? 'text-rose-400' : 'text-amber-300'
             }`}>
-              {isUnavailable ? 'Offline' : state.metrics.backend}
+              {state.reachability === 'reachable' ? 'Online' :
+               state.reachability === 'simulated' ? 'Simulated' :
+               state.reachability === 'degraded' ? 'Degraded' :
+               'Offline'}
             </span>
             <span className="text-[11px] text-emerald-400 font-mono">
               {isUnavailable ? 'N/A' : isMock ? 'DEV' : '99.98%'}
@@ -123,12 +126,12 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm font-semibold text-white font-mono">
-              {isLive ? state.metrics.sync : isMock ? 'Simulated' : isCached ? 'Cached' : 'Not Synchronized'}
+              {isLive ? 'Current' : isMock ? 'Simulated' : isCached ? 'Cached' : 'Not Synchronized'}
             </span>
             <span className={`text-[11px] font-mono ${
               isLive ? 'text-emerald-300/60' : 'text-amber-400'
             }`}>
-              {isLive ? 'Authoritative' : isMock ? 'DEV Mock' : isCached ? 'Snapshot' : 'Unreached'}
+              {isLive ? 'Authoritative' : isMock ? 'DEV Mock' : isCached ? (state.cacheAgeLabel || 'Snapshot') : 'Unreached'}
             </span>
           </div>
         </div>

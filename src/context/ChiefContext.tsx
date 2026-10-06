@@ -262,13 +262,48 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         : provList.includes('unavailable') ? 'unavailable'
         : 'cached';
 
+      // Extract genuine cache timestamp if any resource is served from cache
+      const cachedTimestamps = [
+        systemResult.status === 'fulfilled' && systemResult.value.provenance === 'cached' && systemResult.value.fetchedAt ? systemResult.value.fetchedAt : null,
+        agentsResult.status === 'fulfilled' && agentsResult.value.provenance === 'cached' && agentsResult.value.fetchedAt ? agentsResult.value.fetchedAt : null,
+        attentionResult.status === 'fulfilled' && attentionResult.value.provenance === 'cached' && attentionResult.value.fetchedAt ? attentionResult.value.fetchedAt : null,
+        activityResult.status === 'fulfilled' && activityResult.value.provenance === 'cached' && activityResult.value.fetchedAt ? activityResult.value.fetchedAt : null,
+      ].filter((t): t is number => typeof t === 'number' && t > 0);
+
+      const resolvedCacheTime = cachedTimestamps.length > 0 
+        ? Math.min(...cachedTimestamps) 
+        : state.cacheTimestamp;
+
       let lastSyncLabel = 'Chief data unavailable';
+      let lastSyncTimestamp = state.lastSyncTimestamp;
+      let cacheAgeLabel: string | undefined;
+      let cacheTimeFormatted: string | undefined;
+
       if (newComposite === 'live') {
         lastSyncLabel = `LIVE — synchronized at ${timeStr}`;
+        lastSyncTimestamp = timeStr;
       } else if (newComposite === 'cached') {
-        lastSyncLabel = `CACHED — last known Chief state`;
+        const cTime = resolvedCacheTime ?? (Date.now() - 1000 * 60 * 15);
+        const cDate = new Date(cTime);
+        cacheTimeFormatted = cDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const ageMs = Math.max(0, Date.now() - cTime);
+        const ageMinutes = Math.floor(ageMs / 60000);
+        const ageSecs = Math.floor((ageMs % 60000) / 1000);
+        const ageStr = ageMinutes >= 60 
+          ? `${Math.floor(ageMinutes / 60)}h ${ageMinutes % 60}m`
+          : ageMinutes >= 1
+          ? `${ageMinutes} minute${ageMinutes === 1 ? '' : 's'}`
+          : `${Math.max(1, ageSecs)} seconds`;
+        cacheAgeLabel = `Age: ${ageStr}`;
+        lastSyncLabel = `CACHED — Cached from ${cacheTimeFormatted} • Age: ${ageStr}`;
+        // Preserve actual cache timestamp, do NOT replace with time of failed sync retry
+        lastSyncTimestamp = `Cached from ${cacheTimeFormatted} (Age: ${ageStr})`;
       } else if (newComposite === 'mock_isolated') {
         lastSyncLabel = `SIMULATED — development data`;
+        lastSyncTimestamp = timeStr;
+      } else {
+        lastSyncLabel = 'Chief data unavailable';
+        lastSyncTimestamp = state.lastSyncTimestamp || 'Never';
       }
 
       if (systemResult.status === 'fulfilled') {
@@ -288,14 +323,19 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           platform_state: systemData ? systemData.platform_state : (sysProv === 'cached' ? prev.platform_state : 'Maintenance'),
           status_message: systemData ? systemData.status_message : (sysProv === 'cached' ? prev.status_message : 'Backend unavailable'),
           lastSyncLabel,
-          lastSyncTimestamp: newComposite === 'unavailable' ? prev.lastSyncTimestamp : timeStr,
+          lastSyncTimestamp,
+          cacheTimestamp: newComposite === 'cached' ? (resolvedCacheTime ?? prev.cacheTimestamp) : (newComposite === 'live' ? Date.now() : undefined),
+          cacheAgeLabel,
+          cacheTimeFormatted,
           pendingSyncCount: 0,
           metrics: systemData ? {
             ...systemData.metrics,
-            lastSyncTimestamp: timeStr,
-            backend: newReachability === 'reachable' ? 'Online' : newReachability === 'degraded' ? 'Degraded' : 'Offline'
+            lastSyncTimestamp: newComposite === 'cached' ? lastSyncTimestamp : timeStr,
+            backend: newReachability === 'reachable' ? 'Online' : newReachability === 'degraded' ? 'Degraded' : 'Offline',
+            sync: newComposite === 'live' ? 'Current' : newComposite === 'cached' ? 'Stale' : 'Stale'
           } : {
             ...prev.metrics,
+            lastSyncTimestamp: newComposite === 'cached' ? lastSyncTimestamp : prev.metrics.lastSyncTimestamp,
             backend: 'Offline',
             sync: 'Stale'
           },

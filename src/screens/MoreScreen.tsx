@@ -30,7 +30,10 @@ export const MoreScreen: React.FC = () => {
     isSyncing, 
     lastCorrelationId,
     dataProvenance,
-    resetState 
+    resetState,
+    chiefReachability,
+    syncStatus,
+    networkOnline
   } = useChief();
 
   const { 
@@ -277,20 +280,71 @@ export const MoreScreen: React.FC = () => {
               <span className="text-slate-400">Mutation Policy:</span>
               <span className="text-amber-300">Non-idempotent (Fail-closed • Zero auto-retry)</span>
             </div>
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+              <span className="text-slate-400">Device Network:</span>
+              <span className={`font-semibold ${networkOnline ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {networkOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Chief Backend:</span>
+              <span className={`font-semibold ${
+                chiefReachability === 'reachable' ? 'text-emerald-400' :
+                chiefReachability === 'simulated' ? 'text-amber-400' :
+                chiefReachability === 'degraded' ? 'text-amber-400' :
+                'text-rose-400'
+              }`}>
+                {chiefReachability.toUpperCase()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Synchronization:</span>
+              <span className={`font-semibold ${
+                syncStatus === 'current' ? 'text-emerald-400' :
+                syncStatus === 'stale' ? 'text-amber-400' :
+                syncStatus === 'pending' ? 'text-amber-400' :
+                'text-rose-400'
+              }`}>
+                {syncStatus.toUpperCase()}
+              </span>
+            </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/40 text-[11px] text-emerald-300 space-y-1">
+          <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-900/40 text-[11px] text-emerald-300 space-y-2">
             <span className="font-semibold block text-emerald-200">
-              Isolated Development Mock Architecture:
+              Data Layer Architecture &amp; Provenance Fallback:
             </span>
-            <p className="text-slate-400 leading-relaxed">
-              When live backend routes are unmounted or offline, read-only requests safely resolve via clearly labeled adapters (<code className="text-emerald-300">src/api/mock/isolatedDevMocks.ts</code>) tagged with <code className="text-emerald-300">DEV_MOCK_ISOLATED</code>. All mutations strictly fail-closed without fabricating success.
-            </p>
+            <div className="space-y-1 text-slate-300 leading-relaxed font-mono">
+              <p>
+                <strong className="text-white">Production Fallback:</strong>{' '}
+                <span className="text-emerald-400">LIVE backend</span> →{' '}
+                <span className="text-sky-300">legitimate cache</span> →{' '}
+                <span className="text-rose-400">unavailable</span>.
+                Development mocks and synthetic fixtures are strictly disabled in production.
+              </p>
+              <p>
+                <strong className="text-amber-300">Development (DEV) Mode:</strong> Isolated development mocks may be used and must remain clearly labelled (<code className="text-amber-300">DEV_MOCK_ISOLATED</code>).
+              </p>
+              <p className="text-slate-400">
+                All mutations fail closed with zero synthetic confirmation across both environments.
+              </p>
+            </div>
           </div>
 
           <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-            <span className="text-[11px] text-slate-500">
-              Client Status: {isSyncing ? 'Synchronizing payload...' : 'Idle / Connected'}
+            <span className="text-[11px] text-slate-400 font-mono">
+              Client Status:{' '}
+              {isSyncing ? (
+                <span className="text-sky-400">Synchronizing payload...</span>
+              ) : chiefReachability === 'reachable' ? (
+                <span className="text-emerald-400">Connected / Authoritative (Reachable)</span>
+              ) : chiefReachability === 'simulated' ? (
+                <span className="text-amber-400">Simulation Active (DEV Mode)</span>
+              ) : chiefReachability === 'degraded' ? (
+                <span className="text-amber-400">Chief Backend Degraded ({syncStatus.toUpperCase()})</span>
+              ) : (
+                <span className="text-rose-400">Chief Backend Unreachable ({syncStatus.toUpperCase()})</span>
+              )}
             </span>
             <div className="flex items-center gap-2">
               {isSyncing && (

@@ -78,6 +78,7 @@ export class SystemApiAdapter implements ISystemContract {
 
       const isHealthy = res.data?.healthy === true;
       const invariants = res.data?.invariantsPassed === true;
+      const bothPassed = isHealthy && invariants;
 
       return {
         ...res,
@@ -85,8 +86,8 @@ export class SystemApiAdapter implements ISystemContract {
           healthy: isHealthy,
           invariantsPassed: invariants,
           latencyMs: res.data?.latencyMs ?? 0,
-          status: isHealthy && invariants ? 'healthy' : 'degraded',
-          label: isHealthy ? 'Chief Health Verified' : 'Chief Health Degraded'
+          status: bothPassed ? 'healthy' : 'degraded',
+          label: bothPassed ? 'Chief Health Verified' : 'Chief Health Degraded'
         },
         provenance: 'live'
       };

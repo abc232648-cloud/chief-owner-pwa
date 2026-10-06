@@ -13,6 +13,7 @@ import {
 import { StatusMessageOption, ConnectivityMode } from '../types/chief';
 import { useAuth } from '../context/AuthContext';
 import { useOfflineQueue } from '../context/OfflineQueueContext';
+import { useChief } from '../context/ChiefContext';
 import { UserRole } from '../types/auth';
 
 interface HeaderProps {
@@ -43,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { user, logout, expireSession, setBackendUnavailable, switchPersona, isDevMode } = useAuth();
   const { pendingCount, conflictCount, queue } = useOfflineQueue();
+  const { networkOnline, chiefReachability, syncStatus } = useChief();
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -158,65 +160,72 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-2 sm:gap-4">
             
             {/* Connectivity Indicator (Interactive ONLY in DEV mode) */}
-            {isDevMode ? (
-              <button
-                onClick={onConnectivityToggle}
-                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-colors border ${
-                  connectivity === 'online'
-                    ? 'border-emerald-900/50 text-emerald-300 hover:border-emerald-800/80 bg-[#062215]/80'
-                    : connectivity === 'pending'
-                    ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
-                    : 'border-rose-900/60 text-rose-400 bg-rose-950/30'
-                }`}
-                title="[DEV Simulation Tooling] Click to cycle connectivity state"
-              >
-                {connectivity === 'online' ? (
-                  <>
-                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Online</span>
-                  </>
-                ) : connectivity === 'pending' ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                    <span>Sync Pending</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Offline</span>
-                  </>
-                )}
-                <span className="text-[9px] text-amber-400 font-bold ml-0.5">DEV</span>
-              </button>
-            ) : (
-              <div
-                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono border ${
-                  connectivity === 'online'
-                    ? 'border-emerald-900/50 text-emerald-300 bg-[#062215]/80'
-                    : connectivity === 'pending'
-                    ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
-                    : 'border-rose-900/60 text-rose-400 bg-rose-950/30'
-                }`}
-                title="Authoritative network link state"
-              >
-                {connectivity === 'online' ? (
-                  <>
-                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Online</span>
-                  </>
-                ) : connectivity === 'pending' ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                    <span>Sync Pending</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Offline</span>
-                  </>
-                )}
-              </div>
-            )}
+            {(() => {
+              const linkTitle = `Device Network: ${networkOnline ? 'ONLINE' : 'OFFLINE'} • Chief Backend: ${chiefReachability.toUpperCase()} • Sync: ${syncStatus.toUpperCase()}`;
+              const isOffline = !networkOnline || chiefReachability === 'unreachable';
+              const isDegraded = chiefReachability === 'degraded' || syncStatus === 'stale';
+              const isSimulated = chiefReachability === 'simulated';
+
+              const content = (
+                <>
+                  {!networkOnline ? (
+                    <>
+                      <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Net Offline</span>
+                    </>
+                  ) : chiefReachability === 'unreachable' ? (
+                    <>
+                      <WifiOff className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Chief Unreachable</span>
+                    </>
+                  ) : isSyncing || syncStatus === 'pending' ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-sky-400 animate-spin" />
+                      <span>Syncing</span>
+                    </>
+                  ) : isDegraded ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Link Degraded</span>
+                    </>
+                  ) : isSimulated ? (
+                    <>
+                      <Wifi className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Simulated</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Online</span>
+                    </>
+                  )}
+                  {isDevMode && <span className="text-[9px] text-amber-400 font-bold ml-0.5">DEV</span>}
+                </>
+              );
+
+              const borderClass = isOffline 
+                ? 'border-rose-900/60 text-rose-400 bg-rose-950/30'
+                : isDegraded || isSimulated
+                ? 'border-amber-800/60 text-amber-300 bg-amber-950/30'
+                : 'border-emerald-900/50 text-emerald-300 bg-[#062215]/80';
+
+              return isDevMode ? (
+                <button
+                  onClick={onConnectivityToggle}
+                  className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono transition-colors border hover:brightness-110 ${borderClass}`}
+                  title={`${linkTitle} (Click to cycle simulation in DEV mode)`}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div
+                  className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono border ${borderClass}`}
+                  title={linkTitle}
+                >
+                  {content}
+                </div>
+              );
+            })()}
 
             {/* Offline Queue Inspector Button */}
             {onOpenOfflineQueue && (

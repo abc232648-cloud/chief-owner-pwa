@@ -20,7 +20,8 @@ import {
   Cpu, 
   Radio, 
   Hash, 
-  ShieldAlert 
+  ShieldAlert,
+  Clock 
 } from 'lucide-react';
 
 export const ActivityScreen: React.FC = () => {
@@ -117,7 +118,7 @@ export const ActivityScreen: React.FC = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.activity, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `chief_authoritative_audit_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute("download", `chief_activity_snapshot_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -189,35 +190,70 @@ export const ActivityScreen: React.FC = () => {
           </h1>
           <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
             {actProv === 'live'
-              ? 'Authoritative Audit History • Cryptographically Sealed Invariant Ledger'
+              ? 'Backend Audit History • Live verified activity events'
               : actProv === 'cached'
-              ? 'CACHED — Offline audit snapshot of historical decisions'
+              ? 'Cached Activity Snapshot — Offline audit snapshot of historical events'
               : actProv === 'mock_isolated'
-              ? 'SIMULATED — Development test activity logs'
-              : 'Chief activity logs currently unavailable from backend'}
+              ? 'Simulated Activity — Development test activity logs'
+              : 'Activity Unavailable — Chief activity logs currently unavailable from backend'}
           </p>
         </div>
         <button
           onClick={handleExportJson}
           className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-800/60 text-xs font-mono text-emerald-300 hover:text-white bg-[#062416] hover:bg-[#0a2f1c] transition-colors shadow-sm"
-          title="Export authoritative audit events as sealed JSON"
+          title="Export current activity snapshot as JSON"
         >
           <Download className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Export Sealed Ledger</span>
+          <span>Export Activity Snapshot</span>
         </button>
       </div>
 
-      {/* 2. Tamper-Proof Assurance Notice */}
-      <div className="p-3.5 rounded-xl border border-emerald-900/50 bg-[#052114]/90 text-xs text-emerald-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm font-mono">
+      {/* 2. Activity Provenance Notice */}
+      <div className={`p-3.5 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm font-mono ${
+        actProv === 'live'
+          ? 'border-emerald-900/50 bg-[#052114]/90 text-emerald-200/90'
+          : actProv === 'cached'
+          ? 'border-sky-900/50 bg-[#031b24]/90 text-sky-200/90'
+          : actProv === 'mock_isolated'
+          ? 'border-amber-900/50 bg-[#1c1404]/90 text-amber-200/90'
+          : 'border-rose-900/50 bg-[#1f060a]/90 text-rose-200/90'
+      }`}>
         <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>
-            <strong>Immutable Record:</strong> All events sealed with SHA-256 state hashes. Editing or deletion prohibited.
-          </span>
+          {actProv === 'live' ? (
+            <>
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                <strong>Backend Audit History:</strong> Live activity events received from Chief backend. Read-only client view.
+              </span>
+            </>
+          ) : actProv === 'cached' ? (
+            <>
+              <Clock className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>
+                <strong>Cached Activity Snapshot:</strong> Local offline view of previously retrieved events. Unsynchronized.
+              </span>
+            </>
+          ) : actProv === 'mock_isolated' ? (
+            <>
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Simulated Activity:</strong> Development environment activity records. Not verified by Chief backend.
+              </span>
+            </>
+          ) : (
+            <>
+              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                <strong>Activity Unavailable:</strong> Cannot verify activity records. Backend connection required.
+              </span>
+            </>
+          )}
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/60 shrink-0">
+        <div className="flex items-center gap-1.5 text-[11px] shrink-0 font-mono text-emerald-400/70">
           <Lock className="w-3.5 h-3.5" />
-          <span>Read-Only Authority</span>
+          <span>
+            {actProv === 'live' ? 'Read-Only View' : actProv === 'cached' ? 'Offline Cache' : actProv === 'mock_isolated' ? 'DEV Simulation' : 'Offline'}
+          </span>
         </div>
       </div>
 
@@ -367,7 +403,7 @@ export const ActivityScreen: React.FC = () => {
                     <button
                       onClick={(e) => handleCopyHash(item.hash, e)}
                       className="px-2 py-0.5 rounded bg-[#03140c] border border-emerald-950 hover:border-emerald-800 text-[10px] font-mono text-emerald-400/80 hover:text-emerald-200 flex items-center gap-1 transition-colors"
-                      title="Copy cryptographic SHA-256 seal"
+                      title="Copy event hash / record ID"
                     >
                       <Hash className="w-3 h-3" />
                       <span>{copiedHash === item.hash ? 'COPIED' : item.hash.slice(0, 14) + '...'}</span>
@@ -402,11 +438,11 @@ export const ActivityScreen: React.FC = () => {
                   >
                     <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold block flex items-center gap-1.5">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                      Authoritative Event Details &amp; Evidence Audit
+                      {actProv === 'live' ? 'Backend Event Details & Audit Trail' : actProv === 'cached' ? 'Cached Event Details' : actProv === 'mock_isolated' ? 'Simulated Event Details' : 'Event Details'}
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                       <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 space-y-0.5">
-                        <span className="text-emerald-400/60 block">Authoritative Actor:</span>
+                        <span className="text-emerald-400/60 block">{actProv === 'live' ? 'Authoritative Actor:' : 'Reported Actor:'}</span>
                         <span className="text-white font-medium">{item.actor || 'Chief Central Engine (Autonomous)'}</span>
                       </div>
                       <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 space-y-0.5">
@@ -420,7 +456,7 @@ export const ActivityScreen: React.FC = () => {
                         </div>
                       )}
                       <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 space-y-0.5">
-                        <span className="text-emerald-400/60 block">Cryptographic Hash Seal:</span>
+                        <span className="text-emerald-400/60 block">Event Hash / Record ID:</span>
                         <span className="text-emerald-300 font-bold break-all">{item.hash}</span>
                       </div>
                     </div>
@@ -429,7 +465,7 @@ export const ActivityScreen: React.FC = () => {
                       <div className="p-3 rounded-lg bg-[#03140c] border border-emerald-950 space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-emerald-400 font-bold">Policy Rule Link: {item.decisionEvidence.ruleId || 'POLICY-NOMINAL'}</span>
-                          <span className="text-emerald-400/60 text-[10px]">Verified against Invariant Tree</span>
+                          <span className="text-emerald-400/60 text-[10px]">{actProv === 'live' ? 'Backend Policy Link' : 'Simulated Policy Link'}</span>
                         </div>
                         {item.decisionEvidence.policyExplanation && (
                           <p className="text-emerald-200/90 text-xs font-sans leading-relaxed">

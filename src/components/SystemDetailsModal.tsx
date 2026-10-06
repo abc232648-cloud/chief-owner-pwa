@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, ShieldCheck, CheckCircle2, AlertTriangle, AlertOctagon, HelpCircle } from 'lucide-react';
 import { ChiefState } from '../types/chief';
+import { useChief } from '../context/ChiefContext';
 
 interface SystemDetailsModalProps {
   isOpen: boolean;
@@ -15,6 +16,8 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
   state,
   onNavigateToApprovals
 }) => {
+  const { healthState, networkOnline, chiefReachability, syncStatus } = useChief();
+
   if (!isOpen) return null;
 
   const prov = state.compositeProvenance || 'unavailable';
@@ -22,6 +25,9 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
   const isMock = prov === 'mock_isolated';
   const isCached = prov === 'cached';
   const isUnavailable = prov === 'unavailable';
+
+  // Invariant verification requires LIVE provenance AND verified backend confirmation
+  const isBackendVerified = isLive && healthState.healthy === true && healthState.invariantsPassed === true;
 
   const pendingInterlocksCount = state.attentionItems.filter(i => i.status === 'pending').length;
 
@@ -175,11 +181,26 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
                 )}
                 <div>
                   <h4 className="text-xs font-semibold text-white">Criterion 4: Currency &amp; Sync Verification</h4>
-                  <p className="text-[11px] text-emerald-300/70 mt-0.5">
-                    Mode: <span className="text-white font-mono">{state.connectivity.toUpperCase()}</span> • 
-                    Status: <span className="text-emerald-300 font-mono">{state.lastSyncLabel}</span> • 
-                    Timestamp: <span className="text-emerald-200/80 font-mono">{state.lastSyncTimestamp}</span>
-                  </p>
+                  <div className="text-[11px] text-emerald-300/80 mt-1 font-mono space-y-0.5">
+                    <p>
+                      Device Network: <span className={`font-semibold ${networkOnline ? 'text-emerald-400' : 'text-rose-400'}`}>{networkOnline ? 'ONLINE' : 'OFFLINE'}</span> • 
+                      Chief Backend: <span className={`font-semibold ${
+                        chiefReachability === 'reachable' ? 'text-emerald-400' :
+                        chiefReachability === 'simulated' ? 'text-amber-400' :
+                        chiefReachability === 'degraded' ? 'text-amber-400' :
+                        'text-rose-400'
+                      }`}>{chiefReachability.toUpperCase()}</span> • 
+                      Synchronization: <span className={`font-semibold ${
+                        syncStatus === 'current' ? 'text-emerald-400' :
+                        syncStatus === 'stale' ? 'text-amber-400' :
+                        syncStatus === 'pending' ? 'text-amber-400' :
+                        'text-rose-400'
+                      }`}>{syncStatus.toUpperCase()}</span>
+                    </p>
+                    <p className="text-[10px] text-emerald-400/70">
+                      Status: <span className="text-emerald-200">{state.lastSyncLabel}</span> • Timestamp: <span className="text-emerald-200">{state.lastSyncTimestamp}</span>
+                    </p>
+                  </div>
                   <span className={`inline-block mt-1 text-[10px] font-mono ${
                     isLive ? 'text-emerald-400' : isUnavailable ? 'text-rose-400' : 'text-amber-400'
                   }`}>
@@ -193,30 +214,63 @@ export const SystemDetailsModal: React.FC<SystemDetailsModalProps> = ({
 
           {/* Section 2: Policy Engine Invariants */}
           <div className="space-y-3">
-            <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-300/60 font-bold">
-              Chief Policy Engine Active Invariants
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-300/60 font-bold">
+                Chief Policy Engine Active Invariants
+              </h3>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase font-bold ${
+                isBackendVerified
+                  ? 'bg-emerald-950/70 border-emerald-800 text-emerald-300'
+                  : 'bg-amber-950/70 border-amber-800 text-amber-300'
+              }`}>
+                {isBackendVerified ? 'BACKEND VERIFIED' : 'CLIENT SECURITY CONTRACT / REQUIRED RULE'}
+              </span>
+            </div>
             
             <div className="rounded-xl border border-emerald-950/80 bg-[#03140c] divide-y divide-emerald-950/80 text-xs font-mono">
               <div className="p-3 flex items-center justify-between">
-                <span className="text-emerald-200/80">INV-01: Single Source of Truth</span>
+                <div>
+                  <span className="text-emerald-200/90 block">INV-01: Single Source of Truth</span>
+                  <span className="text-[10px] text-emerald-400/50">Central engine authority rule</span>
+                </div>
                 <span className={`font-semibold ${
-                  isLive ? 'text-emerald-400' : isUnavailable ? 'text-rose-400' : 'text-amber-400'
+                  isBackendVerified ? 'text-emerald-400' : isUnavailable ? 'text-rose-400' : 'text-amber-400'
                 }`}>
-                  {isLive ? 'ENFORCED (Backend Authoritative)' : isMock ? 'SIMULATED (Development Fixture)' : isCached ? 'UNCONFIRMED (Offline Cache Snapshot)' : 'UNVERIFIED (Backend Unreachable)'}
+                  {isBackendVerified ? 'VERIFIED BY CHIEF' : 'CLIENT REQUIREMENT — NOT RUNTIME VERIFIED'}
                 </span>
               </div>
               <div className="p-3 flex items-center justify-between">
-                <span className="text-emerald-200/80">INV-02: Hardware STOP Interlock Immutability</span>
-                <span className="text-emerald-400 font-semibold">ENFORCED (Client Remote Overrides Prohibited)</span>
+                <div>
+                  <span className="text-emerald-200/90 block">INV-02: Hardware STOP Interlock Immutability</span>
+                  <span className="text-[10px] text-emerald-400/50">Client remote overrides prohibited</span>
+                </div>
+                <span className={`font-semibold ${
+                  isBackendVerified ? 'text-emerald-400' : 'text-amber-400'
+                }`}>
+                  {isBackendVerified ? 'VERIFIED BY CHIEF' : 'CLIENT REQUIREMENT — NOT RUNTIME VERIFIED'}
+                </span>
               </div>
               <div className="p-3 flex items-center justify-between">
-                <span className="text-emerald-200/80">INV-03: External Dispatch ASK Gate</span>
-                <span className="text-emerald-400 font-semibold">ENFORCED (Human Approval Gate Mandatory)</span>
+                <div>
+                  <span className="text-emerald-200/90 block">INV-03: External Dispatch ASK Gate</span>
+                  <span className="text-[10px] text-emerald-400/50">Human approval gate mandatory</span>
+                </div>
+                <span className={`font-semibold ${
+                  isBackendVerified ? 'text-emerald-400' : 'text-amber-400'
+                }`}>
+                  {isBackendVerified ? 'VERIFIED BY CHIEF' : 'CLIENT REQUIREMENT — NOT RUNTIME VERIFIED'}
+                </span>
               </div>
               <div className="p-3 flex items-center justify-between">
-                <span className="text-emerald-200/80">INV-04: Zero Token &amp; Credential Transmission</span>
-                <span className="text-emerald-400 font-semibold">ENFORCED (Sanitized Payload Boundary)</span>
+                <div>
+                  <span className="text-emerald-200/90 block">INV-04: Zero Token &amp; Credential Transmission</span>
+                  <span className="text-[10px] text-emerald-400/50">Sanitized client-side boundary</span>
+                </div>
+                <span className={`font-semibold ${
+                  isBackendVerified ? 'text-emerald-400' : 'text-amber-400'
+                }`}>
+                  {isBackendVerified ? 'VERIFIED BY CHIEF' : 'CLIENT REQUIREMENT — NOT RUNTIME VERIFIED'}
+                </span>
               </div>
             </div>
           </div>
