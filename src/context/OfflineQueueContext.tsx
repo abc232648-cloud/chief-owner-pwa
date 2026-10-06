@@ -1,0 +1,353 @@
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { 
+  QueueItem, 
+  QueueItemActionType, 
+  CachedDataSource 
+} from '../types/queue';
+import { INITIAL_OFFLINE_QUEUE } from '../data/mockOfflineQueue';
+import { useChief } from './ChiefContext';
+import { useAuth } from './AuthContext';
+import { chiefApi, ChiefApiError } from '../api';
+import { WorkerReportItem } from '../types/workerReport';
+
+const QUEUE_STORAGE_KEY = 'chief_offline_queue_v2';
+const MAX_BOUNDED_RETRIES = 3;
+
+interface EnqueueOptions {
+  actionType: QueueItemActionType;
+  title: string;
+  domain: 'Farm Agent' | 'Job Agent' | 'Chief Central';
+  payload: Record<string, any>;
+  isPolicyPermitted: boolean;
+  blockReasonIfUnsafe?: string;
+}
+
+interface OfflineQueueContextType {
+  queue: QueueItem[];
+  pendingCount: number;
+  conflictCount: number;
+  isSyncing: boolean;
+  lastSyncTimestamp: number;
+  isDataStale: boolean;
+  isEffectivelyOffline: boolean;
+  enqueueAction: (options: EnqueueOptions) => { success: boolean; item?: QueueItem; error?: string };
+  syncQueueItem: (id: string) => Promise<boolean>;
+  syncAllEligible: () => Promise<{ synced: number; failed: number }>;
+  resolveConflict: (id: string, resolution: 'use_local' | 'accept_server' | 'discard') => Promise<void>;
+  deleteQueueItem: (id: string) => void;
+  clearCompleted: () => void;
+  cachedDataSources: CachedDataSource[];
+}
+
+const OfflineQueueContext = createContext<OfflineQueueContextType | undefined>(undefined);
+
+export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { state: chiefState } = useChief();
+  const { user } = useAuth();
+
+  // Load initial queue
+  const [queue, setQueue] = useState<QueueItem[]>(() => {
+    try {
+      const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_OFFLINE_QUEUE;
+  });
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number>(Date.now() - 1000 * 60 * 12);
+  const [networkOnline, setNetworkOnline] = useState<boolean>(navigator.onLine);
+
+  // Sync to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+    } catch {
+      // ignore
+    }
+  }, [queue]);
+
+  // Online / Offline window listeners
+  useEffect(() => {
+    const handleOnline = () => setNetworkOnline(true);
+    const handleOffline = () => setNetworkOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const isEffectivelyOffline = !networkOnline || chiefState.connectivity === 'offline';
+  const isDataStale = isEffectivelyOffline || (Date.now() - lastSyncTimestamp > 1000 * 60 * 5);
+
+  const pendingCount = queue.filter(q => q.status === 'pending' || q.status === 'failed_transient').length;
+  const conflictCount = queue.filter(q => q.status === 'conflict').length;
+
+  const cachedDataSources: CachedDataSource[] = [
+    {
+      key: 'flock_telemetry',
+      label: 'House 1 & 2 Poultry Telemetry (Temp, NH3, Drinker Line)',
+      domain: 'Farm Agent',
+      cachedAtTimestamp: lastSyncTimestamp,
+      lastSyncFormatted: '12m ago (Simulated Sensor Snap)',
+      isStale: isDataStale,
+      staleAfterMs: 1000 * 60 * 5
+    },
+    {
+      key: 'interlock_status',
+      label: 'Zone B Pressure Relief Interlock Hardware Register',
+      domain: 'Farm Agent',
+      cachedAtTimestamp: lastSyncTimestamp,
+      lastSyncFormatted: '12m ago',
+      isStale: isDataStale,
+      staleAfterMs: 1000 * 60 * 2
+    },
+    {
+      key: 'job_applications',
+      label: 'Application Lifecycle State Machine & Decision Registry',
+      domain: 'Job Agent',
+      cachedAtTimestamp: lastSyncTimestamp,
+      lastSyncFormatted: '12m ago',
+      isStale: isDataStale,
+      staleAfterMs: 1000 * 60 * 10
+    }
+  ];
+
+  // Enqueue an action — CRITICAL SAFETY CHECK: NEVER QUEUE BLINDLY
+  const enqueueAction = useCallback((options: EnqueueOptions): { success: boolean; item?: QueueItem; error?: string } => {
+    if (!options.isPolicyPermitted) {
+      const errorMsg = options.blockReasonIfUnsafe || 
+        'Live Authoritative Validation Required: This high-impact action cannot be queued offline. Active Chief Central Policy Engine verification is mandatory.';
+      return { success: false, error: errorMsg };
+    }
+
+    const now = new Date();
+    const id = `qid-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newItem: QueueItem = {
+      id,
+      actionType: options.actionType,
+      title: options.title,
+      domain: options.domain,
+      createdAt: now.toISOString(),
+      timestampFormatted: 'Just now',
+      status: 'pending',
+      retryCount: 0,
+      maxRetries: MAX_BOUNDED_RETRIES,
+      requiresUserIntervention: false,
+      policyPermitted: true,
+      payload: options.payload,
+      workerAttribution: user ? {
+        userId: user.userId,
+        userName: user.name,
+        role: user.role
+      } : undefined
+    };
+
+    setQueue(prev => [newItem, ...prev]);
+    return { success: true, item: newItem };
+  }, [user]);
+
+  /**
+   * Sync a single queue item.
+   * Requirement 5: A queue record may become synced ONLY after a real backend/API operation confirms it.
+   * If Chief backend cannot confirm, leave record pending or failed_transient. Do NOT fabricate confirmation hashes.
+   */
+  const syncQueueItem = useCallback(async (id: string): Promise<boolean> => {
+    const item = queue.find(q => q.id === id);
+    if (!item) return false;
+
+    // Check bounded retries
+    if (item.retryCount >= item.maxRetries && item.status !== 'conflict') {
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? { 
+              ...q, 
+              status: 'rejected_permanent',
+              requiresUserIntervention: true,
+              lastFailure: `Maximum bounded retries (${MAX_BOUNDED_RETRIES}) exhausted. Retrying halted by policy.`
+            } 
+          : q
+      ));
+      return false;
+    }
+
+    if (isEffectivelyOffline) {
+      return false;
+    }
+
+    // Set status to syncing in-flight
+    setQueue(prev => prev.map(q => 
+      q.id === id ? { ...q, status: 'syncing' } : q
+    ));
+
+    try {
+      // Route to genuine API client endpoint if available
+      if (item.actionType === 'SUBMIT_WORKER_REPORT') {
+        // Construct real payload and call real endpoint
+        const reportPayload: WorkerReportItem = {
+          id: item.id,
+          reportNumber: `RPT-SYNC-${item.id.slice(-4)}`,
+          category: (item.payload.category as any) || 'water',
+          status: 'syncing',
+          createdAt: item.createdAt,
+          timestampFormatted: item.timestampFormatted,
+          workerId: item.workerAttribution?.userId || 'usr-wrk-03',
+          workerName: item.workerAttribution?.userName || 'Tomas Rivera',
+          workerRole: item.workerAttribution?.role || 'Field Worker',
+          categoryLabel: item.title,
+          summary: item.title,
+          data: item.payload,
+          evidenceAttachments: [],
+          syncAttempts: item.retryCount + 1
+        };
+
+        const res = await chiefApi.farm.submitWorkerReport(reportPayload);
+
+        // Genuine confirmation received from backend
+        setQueue(prev => prev.map(q => 
+          q.id === id 
+            ? {
+                ...q,
+                status: 'synced',
+                retryCount: q.retryCount + 1,
+                requiresUserIntervention: false,
+                confirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
+                confirmationHash: res.data.verificationHash,
+                lastFailure: undefined
+              }
+            : q
+        ));
+        setLastSyncTimestamp(Date.now());
+        return true;
+      }
+
+      // For actions with no active live backend sync adapter provisioned:
+      // FAIL-CLOSED: Leave pending/failed_transient and report genuine status without fake confirmation
+      throw new ChiefApiError({
+        message: `Sync adapter not provisioned for action type '${item.actionType}'. Backend confirmation unavailable.`,
+        code: 'SYNC_ADAPTER_UNAVAILABLE',
+        isNetworkError: false
+      });
+    } catch (err: unknown) {
+      const errMsg = err instanceof ChiefApiError ? err.message : 'Uplink transmission failed';
+      const isPermanent = err instanceof ChiefApiError && err.statusCode === 422;
+
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? {
+              ...q,
+              status: isPermanent ? 'rejected_permanent' : (q.retryCount + 1 >= q.maxRetries ? 'rejected_permanent' : 'failed_transient'),
+              retryCount: q.retryCount + 1,
+              requiresUserIntervention: isPermanent || q.retryCount + 1 >= q.maxRetries,
+              lastFailure: errMsg
+            }
+          : q
+      ));
+      return false;
+    }
+  }, [queue, isEffectivelyOffline]);
+
+  // Flush all eligible queue items
+  const syncAllEligible = useCallback(async (): Promise<{ synced: number; failed: number }> => {
+    if (isEffectivelyOffline) {
+      return { synced: 0, failed: 0 };
+    }
+
+    setIsSyncing(true);
+    let synced = 0;
+    let failed = 0;
+
+    const eligibleItems = queue.filter(q => 
+      (q.status === 'pending' || q.status === 'failed_transient') && 
+      !q.requiresUserIntervention && 
+      q.retryCount < q.maxRetries
+    );
+
+    for (const item of eligibleItems) {
+      const ok = await syncQueueItem(item.id);
+      if (ok) synced++;
+      else failed++;
+    }
+
+    setIsSyncing(false);
+    return { synced, failed };
+  }, [isEffectivelyOffline, queue, syncQueueItem]);
+
+  /**
+   * Conflict resolution.
+   * Requirement 6: Must NOT immediately create fake synced state or fake hashes.
+   * If no backend implementation exists yet, keep conflict unresolved and clearly report
+   * that authoritative reconciliation is unavailable.
+   */
+  const resolveConflict = useCallback(async (
+    id: string, 
+    resolution: 'use_local' | 'accept_server' | 'discard'
+  ) => {
+    if (resolution === 'discard') {
+      setQueue(prev => prev.filter(q => q.id !== id));
+      return;
+    }
+
+    // Since authoritative 3-way reconciliation endpoint is not provisioned on backend yet:
+    // FAIL-CLOSED: Do NOT fabricate synced state or fake hashes!
+    // Keep conflict unresolved and clearly inform operator:
+    setQueue(prev => prev.map(q => 
+      q.id === id 
+        ? {
+            ...q,
+            status: 'conflict',
+            requiresUserIntervention: true,
+            lastFailure: `Authoritative reconciliation unavailable: Server endpoint for '${resolution}' is not connected. Conflict remains unresolved.`
+          }
+        : q
+    ));
+  }, []);
+
+  const deleteQueueItem = (id: string) => {
+    setQueue(prev => prev.filter(q => q.id !== id));
+  };
+
+  const clearCompleted = () => {
+    setQueue(prev => prev.filter(q => q.status !== 'synced'));
+  };
+
+  return (
+    <OfflineQueueContext.Provider
+      value={{
+        queue,
+        pendingCount,
+        conflictCount,
+        isSyncing,
+        lastSyncTimestamp,
+        isDataStale,
+        isEffectivelyOffline,
+        enqueueAction,
+        syncQueueItem,
+        syncAllEligible,
+        resolveConflict,
+        deleteQueueItem,
+        clearCompleted,
+        cachedDataSources
+      }}
+    >
+      {children}
+    </OfflineQueueContext.Provider>
+  );
+};
+
+export const useOfflineQueue = (): OfflineQueueContextType => {
+  const context = useContext(OfflineQueueContext);
+  if (!context) {
+    throw new Error('useOfflineQueue must be used within an OfflineQueueProvider');
+  }
+  return context;
+};

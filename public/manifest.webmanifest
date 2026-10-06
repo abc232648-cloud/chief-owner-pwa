@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "CHIEF Mobile Operational Command",
+  "short_name": "CHIEF",
+  "description": "Mobile and PWA control interface for the Chief Agent platform.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#041a10",
+  "background_color": "#041a10",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
