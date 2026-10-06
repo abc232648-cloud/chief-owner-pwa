@@ -13,7 +13,8 @@ import {
   Lock, 
   XCircle, 
   AlertOctagon, 
-  Database 
+  Database,
+  AlertCircle 
 } from 'lucide-react';
 import { useOfflineQueue } from '../../context/OfflineQueueContext';
 import { useChief } from '../../context/ChiefContext';
@@ -54,7 +55,7 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
     if (filterStatus === 'all') return true;
     if (filterStatus === 'pending') return item.status === 'pending' || item.status === 'syncing' || item.status === 'failed_transient';
     if (filterStatus === 'conflict') return item.status === 'conflict';
-    if (filterStatus === 'permanent_error') return item.status === 'rejected_permanent';
+    if (filterStatus === 'permanent_error') return item.status === 'rejected_permanent' || item.status === 'failed_permanent' || item.status === 'unsupported';
     if (filterStatus === 'synced') return item.status === 'synced';
     return true;
   });
@@ -96,11 +97,25 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
             <span>CONFLICT DETECTED</span>
           </span>
         );
+      case 'unsupported':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-zinc-900 text-zinc-300 border border-zinc-700 shadow-sm">
+            <AlertCircle className="w-3.5 h-3.5 text-zinc-400" />
+            <span>UNSUPPORTED SYNC</span>
+          </span>
+        );
+      case 'failed_permanent':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-950 text-amber-200 border border-amber-600 shadow-sm">
+            <XCircle className="w-3.5 h-3.5 text-amber-400" />
+            <span>FAILED (PERMANENT)</span>
+          </span>
+        );
       case 'rejected_permanent':
         return (
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-950 text-rose-200 border border-rose-600 shadow-sm">
             <XCircle className="w-3.5 h-3.5 text-rose-400" />
-            <span>REJECTED (HALTED)</span>
+            <span>CHIEF REJECTED</span>
           </span>
         );
     }
@@ -333,6 +348,10 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
                     ? 'bg-[#120519] border-purple-900/80 shadow-md'
                     : item.status === 'rejected_permanent'
                     ? 'bg-[#180508] border-rose-900/80'
+                    : item.status === 'failed_permanent'
+                    ? 'bg-[#180e05] border-amber-900/80'
+                    : item.status === 'unsupported'
+                    ? 'bg-[#121415] border-zinc-800'
                     : item.status === 'synced'
                     ? 'bg-[#03180d] border-emerald-950'
                     : 'bg-[#03140c] border-emerald-950/80'
@@ -385,6 +404,8 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
                       ? 'bg-purple-950/60 border border-purple-800 text-purple-200'
                       : item.status === 'rejected_permanent'
                       ? 'bg-rose-950/60 border border-rose-800 text-rose-200'
+                      : item.status === 'unsupported'
+                      ? 'bg-zinc-900/80 border border-zinc-700 text-zinc-300'
                       : 'bg-amber-950/40 border border-amber-800 text-amber-200'
                   }`}>
                     <span className="font-bold block mb-0.5">Last Failure / Exception:</span>

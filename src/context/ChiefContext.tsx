@@ -225,6 +225,16 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const res = await chiefApi.attention.approve(id);
+      
+      // Explicitly validate positive backend confirmation
+      if (!res || !res.data || res.data.approved !== true) {
+        throw new ChiefApiError({
+          message: 'Chief backend response missing valid approval confirmation (approved: true required)',
+          code: 'UNCONFIRMED_APPROVAL',
+          statusCode: res?.status
+        });
+      }
+
       setLastCorrelationId(res.correlationId);
 
       // Backend confirmed: Seal approval
@@ -291,6 +301,16 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const res = await chiefApi.attention.reject(id);
+
+      // Explicitly validate positive backend confirmation
+      if (!res || !res.data || res.data.rejected !== true) {
+        throw new ChiefApiError({
+          message: 'Chief backend response missing valid rejection confirmation (rejected: true required)',
+          code: 'UNCONFIRMED_REJECTION',
+          statusCode: res?.status
+        });
+      }
+
       setLastCorrelationId(res.correlationId);
 
       // Backend confirmed: Seal rejection
@@ -356,6 +376,16 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       const res = await chiefApi.attention.acknowledgeStop(id);
+
+      // Explicitly validate positive backend confirmation
+      if (!res || !res.data || res.data.acknowledged !== true) {
+        throw new ChiefApiError({
+          message: 'Chief backend response missing valid STOP acknowledgment confirmation (acknowledged: true required)',
+          code: 'UNCONFIRMED_STOP_ACK',
+          statusCode: res?.status
+        });
+      }
+
       setLastCorrelationId(res.correlationId);
 
       setState(prev => {

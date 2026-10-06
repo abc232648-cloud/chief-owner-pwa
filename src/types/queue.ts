@@ -10,8 +10,10 @@ export type QueueItemStatus =
   | 'syncing'
   | 'synced'
   | 'failed_transient'
+  | 'failed_permanent'
   | 'rejected_permanent'
-  | 'conflict';
+  | 'conflict'
+  | 'unsupported';
 
 export interface ConflictDetails {
   serverRecordId: string;

@@ -160,18 +160,28 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
    * Sync a single queue item.
    * Requirement 5: A queue record may become synced ONLY after a real backend/API operation confirms it.
    * If Chief backend cannot confirm, leave record pending or failed_transient. Do NOT fabricate confirmation hashes.
+   * Requirement 3 (Batch 13A.1):
+   * An action for which no live sync adapter exists must NOT become rejected_permanent.
+   * Use explicit status 'unsupported' with wording:
+   * "Sync adapter not provisioned. No authoritative Chief decision was made."
+   * Set requiresUserIntervention: true. Do not automatically retry unsupported actions.
    */
   const syncQueueItem = useCallback(async (id: string): Promise<boolean> => {
     const item = queue.find(q => q.id === id);
     if (!item) return false;
 
-    // Check bounded retries
+    // Do not automatically retry unsupported actions
+    if (item.status === 'unsupported') {
+      return false;
+    }
+
+    // Check bounded retries: if exhausted on transport errors, become failed_permanent (NOT rejected_permanent)
     if (item.retryCount >= item.maxRetries && item.status !== 'conflict') {
       setQueue(prev => prev.map(q => 
         q.id === id 
           ? { 
               ...q, 
-              status: 'rejected_permanent',
+              status: 'failed_permanent',
               requiresUserIntervention: true,
               lastFailure: `Maximum bounded retries (${MAX_BOUNDED_RETRIES}) exhausted. Retrying halted by policy.`
             } 
@@ -184,70 +194,81 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return false;
     }
 
+    // Fast-path: Actions for which no live sync adapter exists must NOT be retried or claim backend rejection
+    if (item.actionType !== 'SUBMIT_WORKER_REPORT') {
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? {
+              ...q,
+              status: 'unsupported',
+              requiresUserIntervention: true,
+              lastFailure: 'Sync adapter not provisioned. No authoritative Chief decision was made.'
+            }
+          : q
+      ));
+      return false;
+    }
+
     // Set status to syncing in-flight
     setQueue(prev => prev.map(q => 
       q.id === id ? { ...q, status: 'syncing' } : q
     ));
 
     try {
-      // Route to genuine API client endpoint if available
-      if (item.actionType === 'SUBMIT_WORKER_REPORT') {
-        // Construct real payload and call real endpoint
-        const reportPayload: WorkerReportItem = {
-          id: item.id,
-          reportNumber: `RPT-SYNC-${item.id.slice(-4)}`,
-          category: (item.payload.category as any) || 'water',
-          status: 'syncing',
-          createdAt: item.createdAt,
-          timestampFormatted: item.timestampFormatted,
-          workerId: item.workerAttribution?.userId || 'usr-wrk-03',
-          workerName: item.workerAttribution?.userName || 'Tomas Rivera',
-          workerRole: item.workerAttribution?.role || 'Field Worker',
-          categoryLabel: item.title,
-          summary: item.title,
-          data: item.payload,
-          evidenceAttachments: [],
-          syncAttempts: item.retryCount + 1
-        };
+      // Construct real payload and call real endpoint
+      const reportPayload: WorkerReportItem = {
+        id: item.id,
+        reportNumber: `RPT-SYNC-${item.id.slice(-4)}`,
+        category: (item.payload.category as any) || 'water',
+        status: 'syncing',
+        createdAt: item.createdAt,
+        timestampFormatted: item.timestampFormatted,
+        workerId: item.workerAttribution?.userId || 'usr-wrk-03',
+        workerName: item.workerAttribution?.userName || 'Tomas Rivera',
+        workerRole: item.workerAttribution?.role || 'Field Worker',
+        categoryLabel: item.title,
+        summary: item.title,
+        data: item.payload,
+        evidenceAttachments: [],
+        syncAttempts: item.retryCount + 1
+      };
 
-        const res = await chiefApi.farm.submitWorkerReport(reportPayload);
+      const res = await chiefApi.farm.submitWorkerReport(reportPayload);
 
-        // Genuine confirmation received from backend
-        setQueue(prev => prev.map(q => 
-          q.id === id 
-            ? {
-                ...q,
-                status: 'synced',
-                retryCount: q.retryCount + 1,
-                requiresUserIntervention: false,
-                confirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
-                confirmationHash: res.data.verificationHash,
-                lastFailure: undefined
-              }
-            : q
-        ));
-        setLastSyncTimestamp(Date.now());
-        return true;
-      }
-
-      // For actions with no active live backend sync adapter provisioned:
-      // FAIL-CLOSED: Leave pending/failed_transient and report genuine status without fake confirmation
-      throw new ChiefApiError({
-        message: `Sync adapter not provisioned for action type '${item.actionType}'. Backend confirmation unavailable.`,
-        code: 'SYNC_ADAPTER_UNAVAILABLE',
-        isNetworkError: false
-      });
+      // Genuine confirmation received from backend
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? {
+              ...q,
+              status: 'synced',
+              retryCount: q.retryCount + 1,
+              requiresUserIntervention: false,
+              confirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
+              confirmationHash: res.data.verificationHash,
+              lastFailure: undefined
+            }
+          : q
+      ));
+      setLastSyncTimestamp(Date.now());
+      return true;
     } catch (err: unknown) {
       const errMsg = err instanceof ChiefApiError ? err.message : 'Uplink transmission failed';
-      const isPermanent = err instanceof ChiefApiError && err.statusCode === 422;
+      // Genuine authoritative backend rejection: only explicit 422 or policy validation error
+      const isAuthoritativeRejection = err instanceof ChiefApiError && (
+        err.statusCode === 422 || 
+        err.code === 'POLICY_REJECTION' || 
+        err.code === 'VALIDATION_ERROR'
+      );
 
       setQueue(prev => prev.map(q => 
         q.id === id 
           ? {
               ...q,
-              status: isPermanent ? 'rejected_permanent' : (q.retryCount + 1 >= q.maxRetries ? 'rejected_permanent' : 'failed_transient'),
+              status: isAuthoritativeRejection 
+                ? 'rejected_permanent' 
+                : (q.retryCount + 1 >= q.maxRetries ? 'failed_permanent' : 'failed_transient'),
               retryCount: q.retryCount + 1,
-              requiresUserIntervention: isPermanent || q.retryCount + 1 >= q.maxRetries,
+              requiresUserIntervention: isAuthoritativeRejection || q.retryCount + 1 >= q.maxRetries,
               lastFailure: errMsg
             }
           : q

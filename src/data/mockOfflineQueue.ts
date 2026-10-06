@@ -80,5 +80,28 @@ export const INITIAL_OFFLINE_QUEUE: QueueItem[] = [
       userName: 'Tomas Rivera',
       role: 'Field Poultry Specialist'
     }
+  },
+  {
+    id: 'qid-04',
+    actionType: 'LOG_EQUIPMENT_NOTE',
+    title: 'Feed Silo 4 Auger Vibration Log',
+    domain: 'Farm Agent',
+    createdAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+    timestampFormatted: '2h ago',
+    status: 'unsupported',
+    retryCount: 0,
+    maxRetries: 3,
+    requiresUserIntervention: true,
+    policyPermitted: true,
+    lastFailure: 'Sync adapter not provisioned. No authoritative Chief decision was made.',
+    payload: {
+      equipmentId: 'eq-feed-silo-4',
+      vibrationMmPerSec: 4.8
+    },
+    workerAttribution: {
+      userId: 'usr-wrk-03',
+      userName: 'Tomas Rivera',
+      role: 'Field Poultry Specialist'
+    }
   }
 ];

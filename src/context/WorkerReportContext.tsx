@@ -15,6 +15,36 @@ import { chiefApi, ChiefApiError } from '../api';
 
 const STORAGE_KEY = 'chief_worker_reports_v1';
 
+/**
+ * Validates whether an error represents an explicit, authoritative Chief validation/policy rejection.
+ * Generic JS errors, HTTP 5xx, 401, 403, 404, network drops, or malformed payloads must NEVER be
+ * converted to an authoritative Chief rejection.
+ */
+function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
+  if (!(err instanceof ChiefApiError)) {
+    return false;
+  }
+  if (
+    err.isNetworkError ||
+    err.isTimeout ||
+    err.isAborted ||
+    !err.statusCode ||
+    err.statusCode >= 500 ||
+    err.statusCode === 401 ||
+    err.statusCode === 403 ||
+    err.statusCode === 404
+  ) {
+    return false;
+  }
+  return (
+    err.statusCode === 422 ||
+    err.code === 'VALIDATION_ERROR' ||
+    err.code === 'POLICY_REJECTION' ||
+    err.code === 'THRESHOLD_BREACH' ||
+    err.code === 'MISSING_MANDATORY_FIELD'
+  );
+}
+
 interface WorkerReportContextType {
   reports: WorkerReportItem[];
   queuedCount: number;
@@ -160,6 +190,14 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Backend authority call via Chief API adapter
       const res = await chiefApi.farm.submitWorkerReport(syncingReport);
 
+      // Validate positive backend acceptance
+      if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
+        throw new ChiefApiError({
+          message: 'Backend response missing valid acceptance proof',
+          code: 'UNCONFIRMED_REPORT'
+        });
+      }
+
       // Backend confirmed: Seal accepted_by_chief ONLY on real response
       const acceptedReport: WorkerReportItem = {
         ...syncingReport,
@@ -173,35 +211,30 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setLastSubmittedReport(acceptedReport);
       return { success: true, report: acceptedReport };
     } catch (err: unknown) {
-      const isTransportOrNetwork = 
-        !navigator.onLine || 
-        chiefState.connectivity === 'offline' || 
-        (err instanceof ChiefApiError && (err.isNetworkError || err.isTimeout || err.isAborted || err.statusCode === 0 || err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504));
-
-      if (isTransportOrNetwork) {
-        // Network dropped mid-flight or Chief cannot be reached: keep/revert report to queued
-        // Do NOT generate authoritative confirmation metadata
-        const queuedReport: WorkerReportItem = {
+      if (isExplicitChiefRejection(err)) {
+        // Only explicit Chief validation or policy rejection produces rejected_needs_correction
+        const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
+        const rejectedReport: WorkerReportItem = {
           ...syncingReport,
-          status: 'queued',
-          isQueuedOffline: true,
-          rejectionReason: undefined
+          status: 'rejected_needs_correction',
+          rejectionReason: errorMsg
         };
-        setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
-        setLastSubmittedReport(queuedReport);
-        return { success: true, report: queuedReport };
+        setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
+        setLastSubmittedReport(rejectedReport);
+        return { success: false, report: rejectedReport };
       }
 
-      // Backend explicitly rejected the report (e.g. validation failure): transition to 'rejected_needs_correction'
-      const errorMsg = err instanceof ChiefApiError ? err.message : 'Report rejected by Chief Policy Engine.';
-      const rejectedReport: WorkerReportItem = {
+      // Unknown errors, generic JS errors, HTTP 5xx, 401, 403, 404, network drops, malformed responses
+      // MUST NOT imply an authoritative Chief rejection: keep/revert report to queued
+      const queuedReport: WorkerReportItem = {
         ...syncingReport,
-        status: 'rejected_needs_correction',
-        rejectionReason: errorMsg
+        status: 'queued',
+        isQueuedOffline: true,
+        rejectionReason: undefined
       };
-      setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
-      setLastSubmittedReport(rejectedReport);
-      return { success: false, report: rejectedReport };
+      setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
+      setLastSubmittedReport(queuedReport);
+      return { success: true, report: queuedReport };
     }
   }, [user, chiefState.connectivity]);
 
@@ -224,6 +257,15 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     try {
       const res = await chiefApi.farm.submitWorkerReport(target);
+
+      // Validate positive backend acceptance
+      if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
+        throw new ChiefApiError({
+          message: 'Backend response missing valid acceptance proof',
+          code: 'UNCONFIRMED_REPORT'
+        });
+      }
+
       setReports(prev => prev.map(r => 
         r.id === id 
           ? { 
@@ -239,24 +281,20 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       ));
       return true;
     } catch (err: unknown) {
-      const isTransportOrNetwork = 
-        !navigator.onLine || 
-        (err instanceof ChiefApiError && (err.isNetworkError || err.isTimeout || err.isAborted || err.statusCode === 0 || err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504));
-
-      if (isTransportOrNetwork) {
-        // Network failure is NOT equivalent to rejection — stay in 'queued'
+      if (isExplicitChiefRejection(err)) {
+        const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
         setReports(prev => prev.map(r => 
           r.id === id 
-            ? { ...r, status: 'queued', isQueuedOffline: true } 
+            ? { ...r, status: 'rejected_needs_correction', rejectionReason: errorMsg } 
             : r
         ));
         return false;
       }
 
-      const errorMsg = err instanceof ChiefApiError ? err.message : 'Sync retry failed.';
+      // Non-rejection error: remain queued without false rejection
       setReports(prev => prev.map(r => 
         r.id === id 
-          ? { ...r, status: 'rejected_needs_correction', rejectionReason: errorMsg } 
+          ? { ...r, status: 'queued', isQueuedOffline: true, rejectionReason: undefined } 
           : r
       ));
       return false;
@@ -280,6 +318,15 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         setReports(prev => prev.map(r => r.id === item.id ? { ...r, status: 'syncing' } : r));
         const res = await chiefApi.farm.submitWorkerReport(item);
+
+        // Validate positive backend acceptance
+        if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
+          throw new ChiefApiError({
+            message: 'Backend response missing valid acceptance proof',
+            code: 'UNCONFIRMED_REPORT'
+          });
+        }
+
         setReports(prev => prev.map(r => 
           r.id === item.id 
             ? { 
@@ -295,23 +342,19 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         synced++;
       } catch (err: unknown) {
         failed++;
-        const isTransportOrNetwork = 
-          !navigator.onLine || 
-          (err instanceof ChiefApiError && (err.isNetworkError || err.isTimeout || err.isAborted || err.statusCode === 0 || err.statusCode === 404 || err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504));
-
-        if (isTransportOrNetwork) {
-          // Revert back to queued
-          setReports(prev => prev.map(r => 
-            r.id === item.id 
-              ? { ...r, status: 'queued', syncAttempts: (r.syncAttempts || 0) + 1, isQueuedOffline: true } 
-              : r
-          ));
-        } else {
+        if (isExplicitChiefRejection(err)) {
           // Explicit Chief rejection
-          const errorMsg = err instanceof ChiefApiError ? err.message : 'Sync rejected by Chief';
+          const errorMsg = err.message || 'Sync rejected by Chief';
           setReports(prev => prev.map(r => 
             r.id === item.id 
               ? { ...r, status: 'rejected_needs_correction', syncAttempts: (r.syncAttempts || 0) + 1, rejectionReason: errorMsg } 
+              : r
+          ));
+        } else {
+          // Non-rejection (network, timeout, 5xx, auth, unknown) -> keep queued
+          setReports(prev => prev.map(r => 
+            r.id === item.id 
+              ? { ...r, status: 'queued', syncAttempts: (r.syncAttempts || 0) + 1, isQueuedOffline: true, rejectionReason: undefined } 
               : r
           ));
         }
