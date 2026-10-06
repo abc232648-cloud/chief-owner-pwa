@@ -4,10 +4,10 @@ import { UserRole } from '../../types/auth';
 import { ShieldCheck, Lock, ArrowRight, Loader2, KeyRound, AlertTriangle, Terminal, WifiOff } from 'lucide-react';
 
 export const LoginScreen: React.FC = () => {
-  const { login, status, error, isDevMode, toggleDevMode } = useAuth();
+  const { login, status, error, isDevMode } = useAuth();
   const [selectedRole, setSelectedRole] = useState<UserRole>('owner');
-  const [emailInput, setEmailInput] = useState('elena.vance@chief-internal.org');
-  const [passwordInput, setPasswordInput] = useState('••••••••••••');
+  const [emailInput, setEmailInput] = useState(() => isDevMode ? 'elena.vance@chief-internal.org' : '');
+  const [passwordInput, setPasswordInput] = useState(() => isDevMode ? '••••••••••••' : '');
   const [prodSubmitAttempted, setProdSubmitAttempted] = useState(false);
 
   const roleProfiles: Record<UserRole, { title: string; subtitle: string; email: string }> = {
@@ -35,13 +35,20 @@ export const LoginScreen: React.FC = () => {
 
   const handleRoleSelect = (role: UserRole) => {
     setSelectedRole(role);
-    setEmailInput(roleProfiles[role].email);
+    if (isDevMode) {
+      setEmailInput(roleProfiles[role].email);
+      setPasswordInput('••••••••••••');
+    }
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setProdSubmitAttempted(true);
-    await login(selectedRole);
+    if (isDevMode) {
+      await login(selectedRole);
+    } else {
+      await login({ email: emailInput, password: passwordInput });
+    }
   };
 
   const isAuthenticating = status === 'authenticating';
@@ -213,18 +220,18 @@ export const LoginScreen: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick DEV mode toggle link for local testing */}
+          {/* Runtime Environment Status (Display-Only • No Runtime Modification Permitted) */}
           <div className="pt-2 border-t border-emerald-950/80 flex items-center justify-between text-[11px] font-mono text-emerald-400/60">
             <span>Runtime Environment:</span>
-            <button
-              type="button"
-              onClick={toggleDevMode}
-              className="text-emerald-400 hover:underline flex items-center gap-1 text-[10px]"
-              title="Toggle DEV mode for local testing"
-            >
-              Mode: <strong className={isDevMode ? 'text-amber-400 font-bold' : 'text-emerald-300'}>{isDevMode ? 'DEV (SIMULATED)' : 'PRODUCTION'}</strong>
-              <span className="text-slate-500">(click to toggle)</span>
-            </button>
+            {isDevMode ? (
+              <span className="text-amber-400 font-bold text-[10px] uppercase">
+                DEV (SIMULATED PERSONAS ENABLED)
+              </span>
+            ) : (
+              <span className="text-emerald-400 font-semibold text-[10px] uppercase">
+                PRODUCTION GATEWAY (REAL AUTH ONLY)
+              </span>
+            )}
           </div>
         </div>
 

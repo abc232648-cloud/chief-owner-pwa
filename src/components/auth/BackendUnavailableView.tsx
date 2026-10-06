@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { ServerCrash, RefreshCw, Database, ShieldAlert } from 'lucide-react';
+import { ServerCrash, RefreshCw, ShieldAlert, Loader2 } from 'lucide-react';
 
 export const BackendUnavailableView: React.FC = () => {
-  const { recoverBackend } = useAuth();
+  const { recoverBackend, isDevMode } = useAuth();
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryMessage, setRetryMessage] = useState<string | null>(null);
+
+  const handleRetry = () => {
+    setIsRetrying(true);
+    setRetryMessage(null);
+    if (isDevMode) {
+      setTimeout(() => {
+        recoverBackend();
+        setIsRetrying(false);
+      }, 400);
+      return;
+    }
+
+    setTimeout(() => {
+      setIsRetrying(false);
+      setRetryMessage('Authoritative Chief service endpoint (/api/v1/health) remains unreachable. Client state cannot be restored without backend confirmation.');
+    }, 600);
+  };
 
   return (
     <div className="min-h-screen bg-[#021209] text-emerald-50 flex flex-col items-center justify-center p-4 sm:p-6 text-center">
@@ -36,13 +55,24 @@ export const BackendUnavailableView: React.FC = () => {
           <p>• Invariant Policy: Client-side mutation locked</p>
         </div>
 
+        {retryMessage && (
+          <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-800 text-amber-200 text-xs font-mono text-left">
+            {retryMessage}
+          </div>
+        )}
+
         <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
           <button
-            onClick={recoverBackend}
-            className="w-full sm:flex-1 min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-semibold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-950/40 transition-colors"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="w-full sm:flex-1 min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-semibold text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-950/40 transition-colors disabled:opacity-60"
           >
-            <RefreshCw className="w-4 h-4" />
-            <span>Retry Backend Handshake</span>
+            {isRetrying ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            <span>{isDevMode ? 'Restore DEV Session' : 'Retry Backend Handshake'}</span>
           </button>
         </div>
 

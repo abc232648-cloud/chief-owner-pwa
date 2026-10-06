@@ -72,10 +72,12 @@ export const ChiefProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Active sync abort controller ref
   const activeSyncAbortRef = useRef<AbortController | null>(null);
 
-  // Keep API client token configuration synced with active user session
+  // Keep API client token configuration synced with active user session.
+  // BATCH 13B.1 ENFORCEMENT: Simulated personas must NEVER authenticate real API requests.
+  // When user is null, unauthenticated, or simulated, getAuthTokenRef explicitly returns null.
   useEffect(() => {
     chiefApi.client.setConfig({
-      getAuthTokenRef: () => user?.sessionTokenRef || null
+      getAuthTokenRef: () => (user && !user.isSimulated && user.sessionTokenRef ? user.sessionTokenRef : null)
     });
   }, [user]);
 

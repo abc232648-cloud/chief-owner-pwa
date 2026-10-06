@@ -55,7 +55,23 @@ function MainAppShell() {
 
   // 2. Backend Unavailable State
   if (status === 'backend_unavailable') {
-    return <BackendUnavailableView />;
+    return (
+      <div className="min-h-full flex flex-col">
+        {isDevMode && (
+          <aside aria-label="Development environment warning" className="bg-amber-500 text-black px-3 py-1.5 text-xs font-mono font-bold flex flex-wrap items-center justify-between gap-1 border-b border-amber-600 shadow-md sticky top-0 z-50">
+            <div className="flex items-center gap-2">
+              <span className="px-1.5 py-0.5 bg-black text-amber-300 rounded text-[10px] tracking-wider uppercase font-black">
+                DEVELOPMENT / SIMULATION MODE
+              </span>
+              <span className="text-[11px] font-semibold text-black/90">
+                Identity, connectivity, and operational states may be synthetic and are not authoritative Chief state.
+              </span>
+            </div>
+          </aside>
+        )}
+        <BackendUnavailableView />
+      </div>
+    );
   }
 
   // 3. Authenticated or Session Expired State

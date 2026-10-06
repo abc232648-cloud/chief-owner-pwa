@@ -21,6 +21,11 @@ export type UserCapability =
   | 'can_manage_system'
   | 'can_submit_worker_report';
 
+export interface UserCredentials {
+  email: string;
+  password: string;
+}
+
 export interface UserSession {
   userId: string;
   name: string;
