@@ -10,6 +10,7 @@ import { ActionButton } from '../components/ui/ActionButton';
 import { JobAgentModal } from '../components/JobAgentModal';
 import { FarmAgentModal } from '../components/FarmAgentModal';
 import { GenericAgentModal } from '../components/GenericAgentModal';
+import { EmptyState } from '../components/ui/EmptyState';
 import { 
   ArrowUpRight, 
   AlertOctagon, 
@@ -39,6 +40,11 @@ export const AgentsScreen: React.FC = () => {
 
   const selectedAgent = state.agents.find(a => a.agent_id === selectedAgentId) || null;
 
+  const agnProv = state.resourceProvenance?.agents || state.compositeProvenance;
+  const isProvUnavailable = agnProv === 'unavailable';
+  const isProvCached = agnProv === 'cached';
+  const isProvMock = agnProv === 'mock_isolated';
+
   return (
     <div className="space-y-6 pb-24">
       
@@ -50,13 +56,25 @@ export const AgentsScreen: React.FC = () => {
             AGENT DOMAINS
           </h1>
           <p className="text-xs text-emerald-300/60 mt-0.5">
-            {state.agents.length} Autonomous subsystems registered with Chief Central Policy Engine
+            {isProvUnavailable 
+              ? 'Agent telemetry unavailable from Chief backend'
+              : `${state.agents.length} Autonomous subsystems registered with Chief Central Policy Engine`}
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-center">
-          <span className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-[#062416] border border-emerald-900/60 text-emerald-300 flex items-center gap-1.5 shadow-sm">
-            <Layers className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Policy System: Enforced</span>
+          <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono border flex items-center gap-1.5 shadow-sm ${
+            agnProv === 'live' ? 'bg-[#062416] border-emerald-900/60 text-emerald-300' :
+            agnProv === 'cached' ? 'bg-sky-950/40 border-sky-800 text-sky-200' :
+            agnProv === 'mock_isolated' ? 'bg-amber-950/40 border-amber-800 text-amber-200' :
+            'bg-rose-950/40 border-rose-900 text-rose-200'
+          }`}>
+            <Layers className="w-3.5 h-3.5" />
+            <span>
+              {agnProv === 'live' ? 'Policy System: Live' :
+               agnProv === 'cached' ? 'Policy System: Cached' :
+               agnProv === 'mock_isolated' ? 'Policy System: Simulated' :
+               'Policy System: Unavailable'}
+            </span>
           </span>
         </div>
       </div>
@@ -92,7 +110,17 @@ export const AgentsScreen: React.FC = () => {
 
       {/* 4. Data-Driven Agent Cards List */}
       <div className="space-y-4">
-        {filteredAgents.map((agent) => {
+        {filteredAgents.length === 0 ? (
+          <EmptyState
+            title={isProvUnavailable ? "Agent Telemetry Unavailable" : "No Subsystems Found"}
+            description={
+              isProvUnavailable 
+                ? "Cannot reach the Chief backend to inspect registered agent domains. Check network connection or Chief server status." 
+                : "No autonomous agent subsystems match the selected filter."
+            }
+          />
+        ) : (
+          filteredAgents.map((agent) => {
           const isFarm = agent.agent_id === 'farm_agent';
           // In production, mode strictly comes from Chief backend state
           const effectiveMode = isFarm && isDevMode && farmModeOverride 
@@ -235,7 +263,8 @@ export const AgentsScreen: React.FC = () => {
               </div>
             </Card>
           );
-        })}
+        })
+      )}
       </div>
 
       {/* Domain Modals */}

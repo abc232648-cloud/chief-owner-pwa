@@ -9,6 +9,13 @@ import {
 
 export type DataProvenance = 'live' | 'cached' | 'mock_isolated' | 'unavailable';
 
+export interface ResourceProvenanceMap {
+  system: DataProvenance;
+  agents: DataProvenance;
+  attention: DataProvenance;
+  activity: DataProvenance;
+}
+
 export interface ApiClientConfig {
   baseUrl: string;
   timeoutMs: number;
@@ -80,6 +87,8 @@ export interface ISystemContract {
     healthy: boolean;
     invariantsPassed: boolean;
     latencyMs: number;
+    status: 'healthy' | 'degraded' | 'unavailable';
+    label: string;
   }>>;
 }
 

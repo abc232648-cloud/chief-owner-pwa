@@ -446,7 +446,51 @@ export const INITIAL_CHIEF_STATE: ChiefState = {
   attentionItems: INITIAL_ATTENTION_ITEMS,
   agents: INITIAL_AGENTS,
   activity: INITIAL_ACTIVITY,
-  unreadNotificationsCount: 2
+  unreadNotificationsCount: 2,
+  reachability: 'simulated',
+  networkOnline: true,
+  syncStatus: 'current',
+  resourceProvenance: {
+    system: 'mock_isolated',
+    agents: 'mock_isolated',
+    attention: 'mock_isolated',
+    activity: 'mock_isolated'
+  },
+  compositeProvenance: 'mock_isolated',
+  isFullyLive: false
+};
+
+export const PRODUCTION_UNSYNCHRONIZED_CHIEF_STATE: ChiefState = {
+  platform_state: "Maintenance",
+  status_message: "Backend unavailable",
+  connectivity: "offline",
+  pendingSyncCount: 0,
+  lastSyncLabel: "Not synchronized",
+  lastSyncTimestamp: "Never",
+  metrics: {
+    backend: "Offline",
+    policy_engine: "Bypassed",
+    sync: "Stale",
+    agents_active: 0,
+    uptime: "N/A",
+    healthScore: 0,
+    lastSyncTimestamp: "Never"
+  },
+  attentionItems: [],
+  agents: [],
+  activity: [],
+  unreadNotificationsCount: 0,
+  reachability: 'unreachable',
+  networkOnline: typeof navigator !== 'undefined' ? navigator.onLine : false,
+  syncStatus: 'not_synchronized',
+  resourceProvenance: {
+    system: 'unavailable',
+    agents: 'unavailable',
+    attention: 'unavailable',
+    activity: 'unavailable'
+  },
+  compositeProvenance: 'unavailable',
+  isFullyLive: false
 };
 
 export const SECURITY_POLICY = {

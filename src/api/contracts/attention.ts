@@ -2,18 +2,46 @@ import { IAttentionContract, ApiResponse, ChiefApiError } from '../types';
 import { ChiefApiClient } from '../client';
 import { wrapIsolatedMock, ISOLATED_ATTENTION_MOCK } from '../mock/isolatedDevMocks';
 import { AttentionItem } from '../../types/chief';
+import { isChiefDevMode } from '../../config/devMode';
+import { getLiveCache, setLiveCache } from '../cache/readCache';
 
 export class AttentionApiAdapter implements IAttentionContract {
   constructor(private client: ChiefApiClient) {}
 
   public async getItems(signal?: AbortSignal): Promise<ApiResponse<AttentionItem[]>> {
     try {
-      return await this.client.get('/attention', { signal });
+      const res = await this.client.get<AttentionItem[]>('/attention', { signal });
+      setLiveCache('attention_items', res.data, res.correlationId);
+      return {
+        ...res,
+        provenance: 'live'
+      };
     } catch (err) {
-      if (err instanceof ChiefApiError && (err.isNetworkError || err.statusCode === 404)) {
+      // 1. DEV mode allows isolated development mocks
+      if (isChiefDevMode()) {
         return wrapIsolatedMock(ISOLATED_ATTENTION_MOCK, '/attention');
       }
-      throw err;
+
+      // 2. Production mode: Check legitimate cache
+      const cached = getLiveCache<AttentionItem[]>('attention_items');
+      if (cached) {
+        return {
+          data: cached.data,
+          status: 200,
+          headers: new Headers({ 'X-Chief-Provenance': 'cached' }),
+          correlationId: cached.correlationId,
+          isCached: true,
+          fetchedAt: cached.cachedAt,
+          provenance: 'cached'
+        };
+      }
+
+      // 3. Production mode: Never silently substitute synthetic mock items
+      throw new ChiefApiError({
+        code: 'ATTENTION_UNAVAILABLE',
+        message: 'Chief attention inbox is currently unavailable from backend.',
+        isNetworkError: true
+      });
     }
   }
 

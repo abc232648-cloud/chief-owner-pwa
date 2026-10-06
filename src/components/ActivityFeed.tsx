@@ -1,17 +1,37 @@
 import React from 'react';
 import { ArrowRight, FileCheck } from 'lucide-react';
 import { ActivityEvent } from '../types/chief';
+import { DataProvenance } from '../api';
 
 interface ActivityFeedProps {
   items: ActivityEvent[];
   onViewAllActivity: () => void;
+  provenance?: DataProvenance;
 }
 
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   items,
-  onViewAllActivity
+  onViewAllActivity,
+  provenance = 'live'
 }) => {
+  const isUnavailable = provenance === 'unavailable';
+  const isCached = provenance === 'cached';
+  const isMock = provenance === 'mock_isolated';
+  const isLive = provenance === 'live';
+
   const displayItems = items.slice(0, 4);
+
+  const badgeText = 
+    isLive ? 'Authoritative Audit Log' :
+    isCached ? 'Cached Audit Snapshot' :
+    isMock ? 'Simulated Activity Log' :
+    'Audit Log Unavailable';
+
+  const badgeStyle = 
+    isLive ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/50' :
+    isCached ? 'text-sky-300 bg-sky-950/60 border-sky-800/50' :
+    isMock ? 'text-amber-400 bg-amber-950/60 border-amber-800/50' :
+    'text-rose-400 bg-rose-950/60 border-rose-800/50';
 
   return (
     <div 
@@ -24,13 +44,15 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
             <h2 className="text-sm font-semibold text-white tracking-tight">
               Recent Activity
             </h2>
-            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50 flex items-center gap-1">
+            <span className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${badgeStyle}`}>
               <FileCheck className="w-3 h-3" />
-              Authoritative Audit Log
+              {badgeText}
             </span>
           </div>
           <p className="text-xs text-emerald-300/60">
-            Immutable log of agent decisions and policy evaluations
+            {isUnavailable 
+              ? 'Chief audit log unreachable from backend server'
+              : 'Immutable log of agent decisions and policy evaluations'}
           </p>
         </div>
         <button
@@ -44,8 +66,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
 
       {/* Activity List */}
       {displayItems.length === 0 ? (
-        <div className="py-6 text-center text-xs text-emerald-400/50 font-mono">
-          No recent events recorded • Policy engine idle
+        <div className="py-6 text-center text-xs font-mono text-emerald-400/50">
+          {isUnavailable 
+            ? 'Chief activity log currently unavailable from backend' 
+            : 'No recent events recorded • Policy engine idle'}
         </div>
       ) : (
         <div className="divide-y divide-emerald-950/80">

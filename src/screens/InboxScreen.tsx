@@ -223,6 +223,11 @@ export const InboxScreen: React.FC = () => {
     }
   };
 
+  const attentionProv = state.resourceProvenance?.attention || state.compositeProvenance;
+  const isProvUnavailable = attentionProv === 'unavailable';
+  const isProvCached = attentionProv === 'cached';
+  const isProvMock = attentionProv === 'mock_isolated';
+
   return (
     <div className="space-y-6 pb-24">
       
@@ -237,16 +242,29 @@ export const InboxScreen: React.FC = () => {
             Priority Hierarchy: <strong className="text-rose-400">STOP</strong> &gt; <strong className="text-amber-400">ASK / Approval</strong> &gt; <strong className="text-amber-300/80">Warning</strong> &gt; <strong className="text-cyan-400">Information</strong>
           </p>
         </div>
-        {isDevMode && (
-          <button
-            onClick={resetState}
-            className="self-start sm:self-center flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-amber-800/80 text-xs font-mono text-amber-300 hover:text-white bg-[#191003] hover:bg-[#251705] transition-colors shadow-sm"
-            title="[DEV ONLY] Reset to authoritative baseline queue"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span>[DEV] Reset Baseline</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 self-start sm:self-center">
+          <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono border ${
+            attentionProv === 'live' ? 'text-emerald-300 bg-[#062416] border-emerald-900/60' :
+            attentionProv === 'cached' ? 'text-sky-200 bg-sky-950/40 border-sky-800' :
+            attentionProv === 'mock_isolated' ? 'text-amber-200 bg-amber-950/40 border-amber-800' :
+            'text-rose-200 bg-rose-950/40 border-rose-900'
+          }`}>
+            {attentionProv === 'live' ? 'LIVE Attention Feed' :
+             attentionProv === 'cached' ? 'CACHED Attention Snapshot' :
+             attentionProv === 'mock_isolated' ? 'SIMULATED Test Items' :
+             'Chief Feed Unavailable'}
+          </span>
+          {isDevMode && (
+            <button
+              onClick={resetState}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-xl border border-amber-800/80 text-xs font-mono text-amber-300 hover:text-white bg-[#191003] hover:bg-[#251705] transition-colors shadow-sm"
+              title="[DEV ONLY] Reset to authoritative baseline queue"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>[DEV] Reset</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Offline Safety Declaration */}
@@ -349,8 +367,18 @@ export const InboxScreen: React.FC = () => {
       <div className="space-y-4">
         {filteredItems.length === 0 ? (
           <EmptyState
-            title="Queue Cleared"
-            description="All active interlocks nominal. No human intervention is currently blocked or requested by Chief Central Engine."
+            title={
+              isProvUnavailable ? "Chief Attention Queue Unavailable" :
+              isProvCached ? "Cached Queue Empty" :
+              isProvMock ? "Simulated Queue Cleared" :
+              "Queue Cleared"
+            }
+            description={
+              isProvUnavailable ? "Unable to connect to Chief backend to retrieve pending approvals or safety interlocks. Verify backend uplink." :
+              isProvCached ? "No pending intervention items in the offline cached snapshot. Live updates paused." :
+              isProvMock ? "No items in the simulated development testing queue." :
+              "All active interlocks nominal. No human intervention is currently blocked or requested by Chief Central Engine."
+            }
           />
         ) : (
           filteredItems.map(item => {

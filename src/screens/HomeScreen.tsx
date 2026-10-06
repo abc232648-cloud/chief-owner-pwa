@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChief } from '../context/ChiefContext';
 import { AttentionArea } from '../components/AttentionArea';
@@ -21,8 +21,12 @@ export const HomeScreen: React.FC = () => {
   const navigate = useNavigate();
   const { 
     state, 
+    healthState,
     forceSync, 
-    pendingApprovalsCount 
+    pendingApprovalsCount,
+    compositeProvenance,
+    isFullyLive,
+    chiefReachability
   } = useChief();
   const { queuedCount } = useWorkerReports();
 
@@ -35,6 +39,50 @@ export const HomeScreen: React.FC = () => {
 
   const jobAgent = state.agents.find(a => a.agent_id === 'job_agent') || state.agents[0];
   const farmAgent = state.agents.find(a => a.agent_id === 'farm_agent') || state.agents[1];
+
+  // Truthful provenance-derived subtitle and health determination
+  const provenanceSubtitle = useMemo(() => {
+    switch (compositeProvenance) {
+      case 'live':
+        return 'LIVE — synchronized with Chief backend';
+      case 'cached':
+        return 'CACHED — last known Chief state';
+      case 'mock_isolated':
+        return 'SIMULATED — development data';
+      case 'unavailable':
+      default:
+        return 'Chief data unavailable';
+    }
+  }, [compositeProvenance]);
+
+  const healthBadge = useMemo(() => {
+    if (healthState.provenance === 'mock_isolated') {
+      return {
+        dot: 'bg-amber-400',
+        label: 'SIMULATED HEALTH — NOT CHIEF HEALTH',
+        className: 'bg-amber-950/40 border-amber-800 text-amber-200 font-bold'
+      };
+    }
+    if (healthState.status === 'healthy' && healthState.provenance === 'live') {
+      return {
+        dot: 'bg-emerald-400 animate-pulse',
+        label: 'Health Check: Nominal (Live)',
+        className: 'bg-[#062416] border-emerald-900/60 text-emerald-300'
+      };
+    }
+    if (healthState.status === 'degraded') {
+      return {
+        dot: 'bg-amber-400',
+        label: healthState.provenance === 'cached' ? 'Health Check: Cached Snapshot' : 'Chief Health Degraded',
+        className: 'bg-amber-950/40 border-amber-800 text-amber-200'
+      };
+    }
+    return {
+      dot: 'bg-rose-400',
+      label: 'Chief Health Unavailable',
+      className: 'bg-rose-950/40 border-rose-900 text-rose-200'
+    };
+  }, [healthState]);
 
   return (
     <div className="space-y-6 pb-24">
@@ -58,14 +106,14 @@ export const HomeScreen: React.FC = () => {
             <span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block shadow-[0_0_8px_rgba(52,211,153,0.6)]"></span>
             OPERATIONAL CONSOLE
           </h1>
-          <p className="text-xs text-emerald-300/60 mt-0.5">
-            Real-time telemetry feed synchronized with Authoritative Chief Backend
+          <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
+            {provenanceSubtitle}
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-center">
-          <span className="px-2.5 py-1 rounded-md text-[11px] font-mono bg-[#062416] border border-emerald-900/60 text-emerald-300 flex items-center gap-1.5 shadow-sm">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Health Check: Nominal</span>
+          <span className={`px-2.5 py-1 rounded-md text-[11px] font-mono border flex items-center gap-1.5 shadow-sm ${healthBadge.className}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${healthBadge.dot}`} />
+            <span>{healthBadge.label}</span>
           </span>
         </div>
       </div>
@@ -74,6 +122,7 @@ export const HomeScreen: React.FC = () => {
       <AttentionArea
         items={state.attentionItems}
         onViewInbox={() => navigate('/inbox')}
+        provenance={state.resourceProvenance?.attention || compositeProvenance}
       />
 
       {/* 3. Chief Status Card */}
@@ -90,6 +139,7 @@ export const HomeScreen: React.FC = () => {
           else if (id === 'farm_agent') setIsFarmAgentOpen(true);
           else navigate('/agents');
         }}
+        provenance={state.resourceProvenance?.agents || compositeProvenance}
       />
 
       {/* 5. Quick Actions */}
@@ -107,6 +157,7 @@ export const HomeScreen: React.FC = () => {
       <ActivityFeed
         items={state.activity}
         onViewAllActivity={() => navigate('/activity')}
+        provenance={state.resourceProvenance?.activity || compositeProvenance}
       />
 
       {/* 7. Security Policy & Authority Rules Compliance Bar */}

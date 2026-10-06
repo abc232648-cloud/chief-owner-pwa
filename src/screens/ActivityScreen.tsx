@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useChief } from '../context/ChiefContext';
+import { useAuth } from '../context/AuthContext';
 import { ActivitySeverity } from '../types/chief';
 import { EmptyState } from '../components/ui/EmptyState';
 import { 
@@ -24,6 +25,11 @@ import {
 
 export const ActivityScreen: React.FC = () => {
   const { state } = useChief();
+
+  const actProv = state.resourceProvenance?.activity || state.compositeProvenance;
+  const isProvUnavailable = actProv === 'unavailable';
+  const isProvCached = actProv === 'cached';
+  const isProvMock = actProv === 'mock_isolated';
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAgent, setSelectedAgent] = useState('All');
@@ -182,7 +188,13 @@ export const ActivityScreen: React.FC = () => {
             ACTIVITY &amp; AUDIT LOG
           </h1>
           <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
-            Authoritative Audit History • Cryptographically Sealed Invariant Ledger
+            {actProv === 'live'
+              ? 'Authoritative Audit History • Cryptographically Sealed Invariant Ledger'
+              : actProv === 'cached'
+              ? 'CACHED — Offline audit snapshot of historical decisions'
+              : actProv === 'mock_isolated'
+              ? 'SIMULATED — Development test activity logs'
+              : 'Chief activity logs currently unavailable from backend'}
           </p>
         </div>
         <button
@@ -309,8 +321,16 @@ export const ActivityScreen: React.FC = () => {
 
         {filteredEvents.length === 0 ? (
           <EmptyState
-            title="No Matching Audit Events"
-            description="No audit ledger records match the selected filter criteria or search keyword."
+            title={
+              isProvUnavailable ? "Chief Activity Logs Unavailable" :
+              isProvCached ? "No Cached Activity Found" :
+              "No Matching Audit Events"
+            }
+            description={
+              isProvUnavailable ? "Cannot reach the Chief backend to load audit records or historical actions. Verify backend connectivity." :
+              isProvCached ? "No audit records matching criteria in the offline cache snapshot." :
+              "No audit ledger records match the selected filter criteria or search keyword."
+            }
           />
         ) : (
           filteredEvents.map((item) => {

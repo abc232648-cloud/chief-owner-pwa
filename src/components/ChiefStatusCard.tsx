@@ -11,6 +11,19 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
   state,
   onOpenSystemDetails
 }) => {
+  const prov = state.compositeProvenance || 'unavailable';
+
+  const sourceLabel = 
+    prov === 'live' ? 'Source Authority • Backend Chief State (LIVE)' :
+    prov === 'cached' ? 'Client Cache • Last Known Backend State' :
+    prov === 'mock_isolated' ? 'Development Mock Fixture • Simulated Data' :
+    'Chief Backend Unreachable • Telemetry Unavailable';
+
+  const isLive = prov === 'live';
+  const isMock = prov === 'mock_isolated';
+  const isCached = prov === 'cached';
+  const isUnavailable = prov === 'unavailable';
+
   return (
     <div 
       id="chief_status_card"
@@ -21,17 +34,34 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
         {/* Source Authority & Platform State */}
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-300/60">
-              Source Authority • Backend Chief State
+            <span className={`text-[11px] font-mono uppercase tracking-wider ${
+              isLive ? 'text-emerald-400 font-semibold' :
+              isCached ? 'text-sky-300' :
+              isMock ? 'text-amber-400' :
+              'text-rose-400'
+            }`}>
+              {sourceLabel}
             </span>
           </div>
           <div className="flex items-center gap-2.5">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              {isLive ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </>
+              ) : isUnavailable ? (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+              ) : (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              )}
             </span>
             <h3 className="text-lg font-semibold text-white tracking-tight flex items-center gap-2">
-              Platform State: <span className="text-emerald-400 font-mono">{state.platform_state}</span>
+              Platform State: <span className={`font-mono ${
+                isLive ? 'text-emerald-400' :
+                isUnavailable ? 'text-rose-400' :
+                'text-amber-400'
+              }`}>{state.platform_state}</span>
             </h3>
           </div>
         </div>
@@ -56,10 +86,14 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
             <Database className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-sm font-semibold text-white font-mono">
-              {state.metrics.backend}
+            <span className={`text-sm font-semibold font-mono ${
+              isLive ? 'text-white' : isUnavailable ? 'text-rose-400' : 'text-amber-300'
+            }`}>
+              {isUnavailable ? 'Offline' : state.metrics.backend}
             </span>
-            <span className="text-[11px] text-emerald-400 font-mono">99.98%</span>
+            <span className="text-[11px] text-emerald-400 font-mono">
+              {isUnavailable ? 'N/A' : isMock ? 'DEV' : '99.98%'}
+            </span>
           </div>
         </div>
 
@@ -70,10 +104,14 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-sm font-semibold text-emerald-400 font-mono">
-              {state.metrics.policy_engine}
+            <span className={`text-sm font-semibold font-mono ${
+              isLive ? 'text-emerald-400' : isUnavailable ? 'text-rose-400' : 'text-amber-300'
+            }`}>
+              {isUnavailable ? 'Unreachable' : state.metrics.policy_engine}
             </span>
-            <span className="text-[11px] text-emerald-300/60 font-mono">Enforcing</span>
+            <span className="text-[11px] text-emerald-300/60 font-mono">
+              {isLive ? 'Enforcing' : isMock ? 'Simulated' : isCached ? 'Cached' : 'Offline'}
+            </span>
           </div>
         </div>
 
@@ -85,9 +123,13 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm font-semibold text-white font-mono">
-              {state.metrics.sync}
+              {isLive ? state.metrics.sync : isMock ? 'Simulated' : isCached ? 'Cached' : 'Not Synchronized'}
             </span>
-            <span className="text-[11px] text-emerald-300/60 font-mono">Authoritative</span>
+            <span className={`text-[11px] font-mono ${
+              isLive ? 'text-emerald-300/60' : 'text-amber-400'
+            }`}>
+              {isLive ? 'Authoritative' : isMock ? 'DEV Mock' : isCached ? 'Snapshot' : 'Unreached'}
+            </span>
           </div>
         </div>
 
@@ -99,9 +141,11 @@ export const ChiefStatusCard: React.FC<ChiefStatusCardProps> = ({
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-sm font-semibold text-white font-mono">
-              {state.metrics.agents_active}
+              {isUnavailable ? 0 : state.metrics.agents_active}
             </span>
-            <span className="text-[11px] text-emerald-300/60 font-mono">Running</span>
+            <span className="text-[11px] text-emerald-300/60 font-mono">
+              {isUnavailable ? 'Unavailable' : 'Registered'}
+            </span>
           </div>
         </div>
 

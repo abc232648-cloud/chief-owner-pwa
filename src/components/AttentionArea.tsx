@@ -1,22 +1,58 @@
 import React from 'react';
 import { AlertOctagon, HelpCircle, ArrowRight, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { AttentionItem } from '../types/chief';
+import { DataProvenance } from '../api';
 
 interface AttentionAreaProps {
   items: AttentionItem[];
   onViewInbox: () => void;
+  provenance?: DataProvenance;
 }
 
 export const AttentionArea: React.FC<AttentionAreaProps> = ({
   items,
-  onViewInbox
+  onViewInbox,
+  provenance = 'live'
 }) => {
+  const isUnavailable = provenance === 'unavailable';
+  const isCached = provenance === 'cached';
+  const isMock = provenance === 'mock_isolated';
+
   const pendingItems = items.filter(i => i.status === 'pending');
   const stopItems = pendingItems.filter(i => i.level === 'STOP');
   const askItems = pendingItems.filter(i => i.level === 'Approval required' || i.level === 'ASK' || i.level === 'Approval');
   const warningItems = pendingItems.filter(i => i.level === 'Warning');
 
   const hasActionRequired = stopItems.length > 0 || askItems.length > 0 || warningItems.length > 0;
+
+  if (isUnavailable && !hasActionRequired) {
+    return (
+      <div 
+        id="priority_area"
+        className="rounded-xl border border-rose-900/40 bg-rose-950/20 px-5 py-4 transition-all duration-200 shadow-sm"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertOctagon className="w-5 h-5 text-rose-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-rose-200">
+                Attention Items Unavailable
+              </p>
+              <p className="text-xs text-rose-300/60 mt-0.5 font-mono">
+                Unable to verify approvals or safety interlocks from Chief backend
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onViewInbox}
+            className="text-xs text-rose-400 hover:text-rose-200 transition-colors underline decoration-rose-800 underline-offset-4"
+          >
+            Review inbox
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasActionRequired) {
     return (
@@ -29,10 +65,14 @@ export const AttentionArea: React.FC<AttentionAreaProps> = ({
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             <div>
               <p className="text-sm font-semibold text-emerald-200">
-                Nothing requires your attention
+                {isMock ? 'Nothing requires your attention (Simulated)' :
+                 isCached ? 'No cached items require attention' :
+                 'Nothing requires your attention'}
               </p>
               <p className="text-xs text-emerald-300/60 mt-0.5">
-                All interlocks nominal • Policy rules satisfied • Zero blocked processes
+                {isMock ? 'Simulated interlocks nominal • Policy rules satisfied' :
+                 isCached ? 'Cached snapshot nominal • Real-time telemetry paused' :
+                 'All interlocks nominal • Policy rules satisfied • Zero blocked processes'}
               </p>
             </div>
           </div>

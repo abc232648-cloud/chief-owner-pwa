@@ -95,7 +95,7 @@ export type ActivitySeverity = "nominal" | "notice" | "warning" | "interlock" | 
 export interface ActivityEvidenceLink {
   ruleId?: string;
   policyExplanation?: string;
-  parameters?: Record<string, string | number>;
+  parameters?: Record<string, string | number | boolean>;
   rawHash?: string;
 }
 
@@ -116,6 +116,9 @@ export interface ActivityEvent {
 }
 
 export type ConnectivityMode = "online" | "offline" | "pending";
+export type NetworkConnectivity = "online" | "offline";
+export type ChiefBackendReachability = "reachable" | "degraded" | "unreachable" | "simulated";
+export type SynchronizationStatus = "current" | "pending" | "stale" | "not_synchronized" | "syncing";
 
 export interface SystemMetrics {
   backend: "Online" | "Degraded" | "Offline";
@@ -139,4 +142,15 @@ export interface ChiefState {
   agents: AgentState[];
   activity: ActivityEvent[];
   unreadNotificationsCount: number;
+  reachability?: ChiefBackendReachability;
+  networkOnline?: boolean;
+  syncStatus?: SynchronizationStatus;
+  resourceProvenance?: {
+    system: "live" | "cached" | "mock_isolated" | "unavailable";
+    agents: "live" | "cached" | "mock_isolated" | "unavailable";
+    attention: "live" | "cached" | "mock_isolated" | "unavailable";
+    activity: "live" | "cached" | "mock_isolated" | "unavailable";
+  };
+  compositeProvenance?: "live" | "cached" | "mock_isolated" | "unavailable";
+  isFullyLive?: boolean;
 }
