@@ -1,38 +1,21 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Sprout, 
-  AlertTriangle, 
-  AlertOctagon, 
-  Droplets, 
-  Thermometer, 
-  Wind, 
-  Radio, 
-  FlaskConical, 
-  WifiOff, 
-  Wrench, 
-  FileText, 
-  Clock, 
-  Egg, 
-  Bird, 
-  HardHat, 
-  Plus 
-} from 'lucide-react';
+import { AlertOctagon, AlertTriangle, Bird, Clock, Egg, FileText, FlaskConical, Plus, Sprout, WifiOff, Wrench, X } from 'lucide-react';
 import { AgentState } from '../types/chief';
 import { FarmOperatingMode } from '../types/farmAgent';
 import { useWorkerReports } from '../context/WorkerReportContext';
 import { useOfflineQueue } from '../context/OfflineQueueContext';
 import { useAuth } from '../context/AuthContext';
+import { useChief } from '../context/ChiefContext';
 import { WorkerReportModal } from './worker/WorkerReportModal';
-import { 
-  INITIAL_POULTRY_FLOCKS, 
-  INITIAL_DAILY_REPORTS, 
-  INITIAL_FARM_TASKS, 
-  INITIAL_WORKER_SUBMISSIONS, 
-  INITIAL_FARM_EQUIPMENT, 
-  INITIAL_FARM_ALERTS, 
-  INITIAL_FARM_SENSORS, 
-  INITIAL_PRODUCTION_STATE 
+import {
+  INITIAL_DAILY_REPORTS,
+  INITIAL_FARM_ALERTS,
+  INITIAL_FARM_EQUIPMENT,
+  INITIAL_FARM_SENSORS,
+  INITIAL_FARM_TASKS,
+  INITIAL_POULTRY_FLOCKS,
+  INITIAL_PRODUCTION_STATE,
+  INITIAL_WORKER_SUBMISSIONS
 } from '../data/farmAgentData';
 
 interface FarmAgentModalProps {
@@ -42,1022 +25,243 @@ interface FarmAgentModalProps {
   onNavigateToApprovals: () => void;
 }
 
-type FarmTab = 
-  | 'overview' 
-  | 'reports' 
-  | 'tasks' 
-  | 'production' 
-  | 'flock' 
-  | 'workers' 
-  | 'equipment' 
-  | 'alerts' 
-  | 'sensors' 
-  | 'history';
+type FarmTab = 'overview' | 'reports' | 'tasks' | 'production' | 'flock' | 'workers' | 'equipment' | 'alerts' | 'sensors';
 
-export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
-  isOpen,
-  onClose,
-  agent,
-  onNavigateToApprovals
-}) => {
+export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({ isOpen, onClose, agent, onNavigateToApprovals }) => {
   const { isDevMode } = useAuth();
-  const rawBackendMode = agent?.operationalMode as FarmOperatingMode;
-  const backendMode: FarmOperatingMode = isDevMode 
-    ? (rawBackendMode || 'SIMULATION') 
-    : (rawBackendMode === 'LIVE' || rawBackendMode === 'CACHED' ? rawBackendMode : 'UNAVAILABLE');
-  const [devModeOverride, setDevModeOverride] = useState<FarmOperatingMode | null>(null);
-  const operatingMode: FarmOperatingMode = isDevMode && devModeOverride ? devModeOverride : backendMode;
-
-  const [activeTab, setActiveTab] = useState<FarmTab>('overview');
-  const [isWorkerReportOpen, setIsWorkerReportOpen] = useState(false);
+  const { state } = useChief();
   const { reports: workerReports, queuedCount } = useWorkerReports();
   const { isDataStale } = useOfflineQueue();
+  const [activeTab, setActiveTab] = useState<FarmTab>('overview');
+  const [isWorkerReportOpen, setIsWorkerReportOpen] = useState(false);
+  const [devModeOverride, setDevModeOverride] = useState<FarmOperatingMode | null>(null);
 
   if (!isOpen) return null;
 
-  const renderOperatingModeBadge = () => {
-    switch (operatingMode) {
-      case 'LIVE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-emerald-950/80 border border-emerald-500 text-emerald-300 shadow-sm">
-            <Radio className="w-3.5 h-3.5 text-emerald-400" />
-            <span>LIVE TELEMETRY</span>
-          </span>
-        );
-      case 'CACHED':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-amber-950/60 border border-amber-800 text-amber-400">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span>CACHED TELEMETRY</span>
-          </span>
-        );
-      case 'UNAVAILABLE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-zinc-900 border border-zinc-700 text-zinc-400">
-            <WifiOff className="w-3.5 h-3.5 text-zinc-500" />
-            <span>UNAVAILABLE</span>
-          </span>
-        );
-      case 'SIMULATION':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-amber-950/80 border border-amber-500 text-amber-200 shadow-sm">
-            <FlaskConical className="w-3.5 h-3.5 text-amber-400" />
-            <span>SIMULATION MODE</span>
-          </span>
-        );
-      case 'OFFLINE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-zinc-900 border border-zinc-600 text-zinc-300">
-            <WifiOff className="w-3.5 h-3.5 text-zinc-400" />
-            <span>OFFLINE</span>
-          </span>
-        );
-      case 'NOT CONFIGURED':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-purple-950/80 border border-purple-600 text-purple-200">
-            <Wrench className="w-3.5 h-3.5 text-purple-400" />
-            <span>NOT CONFIGURED</span>
-          </span>
-        );
-      case 'STALE':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded font-mono text-[11px] font-bold bg-amber-950/60 border border-amber-800 text-amber-400">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span>STALE CACHED DATA</span>
-          </span>
-        );
-    }
-  };
+  const provenance = state.resourceProvenance?.agents || state.compositeProvenance || 'unavailable';
+  const rawMode = agent.operationalMode as FarmOperatingMode | undefined;
+  const backendMode: FarmOperatingMode = provenance === 'live'
+    ? (rawMode || 'UNAVAILABLE')
+    : provenance === 'cached'
+      ? 'CACHED'
+      : isDevMode
+        ? (rawMode || 'SIMULATION')
+        : 'UNAVAILABLE';
+  const displayMode = isDevMode && devModeOverride ? devModeOverride : backendMode;
 
-  const navTabs: { id: FarmTab; label: string; hasAlert?: boolean }[] = [
+  const modeDescription = isDevMode
+    ? `DEV presentation mode: ${displayMode}. This does not create live Chief or farm-hardware state.`
+    : provenance === 'live'
+      ? `Chief API reported Farm Agent mode: ${displayMode}. Policy/interlock enforcement is not independently attested by this client.`
+      : provenance === 'cached'
+        ? 'Cached Farm Agent record. Live farm state and policy authority are not currently reverified.'
+        : 'Farm Agent backend telemetry is unavailable.';
+
+  const tabs: Array<{ id: FarmTab; label: string }> = [
     { id: 'overview', label: 'Overview' },
-    { id: 'reports', label: `Daily Reports (${isDevMode ? INITIAL_DAILY_REPORTS.length + workerReports.length : workerReports.length})` },
-    { id: 'tasks', label: `Tasks (${isDevMode ? INITIAL_FARM_TASKS.length : 0})`, hasAlert: isDevMode },
+    { id: 'reports', label: `Reports (${workerReports.length + (isDevMode ? INITIAL_DAILY_REPORTS.length : 0)})` },
+    { id: 'tasks', label: `Tasks (${isDevMode ? INITIAL_FARM_TASKS.length : 0})` },
     { id: 'production', label: 'Production' },
     { id: 'flock', label: `Flock (${isDevMode ? INITIAL_POULTRY_FLOCKS.length : 0})` },
     { id: 'workers', label: `Workers (${isDevMode ? INITIAL_WORKER_SUBMISSIONS.length : 0})` },
     { id: 'equipment', label: `Equipment (${isDevMode ? INITIAL_FARM_EQUIPMENT.length : 0})` },
-    { id: 'alerts', label: `Alerts (${isDevMode ? INITIAL_FARM_ALERTS.length : 0})`, hasAlert: isDevMode },
-    { id: 'sensors', label: `Sensors (${isDevMode ? INITIAL_FARM_SENSORS.length : 0})` },
-    { id: 'history', label: 'History' }
+    { id: 'alerts', label: `Alerts (${isDevMode ? INITIAL_FARM_ALERTS.length : 0})` },
+    { id: 'sensors', label: `Sensors (${isDevMode ? INITIAL_FARM_SENSORS.length : 0})` }
   ];
 
-  const getPolicyAuthorityWording = () => {
-    if (isDevMode && (operatingMode === 'SIMULATION' || devModeOverride === 'SIMULATION')) {
-      return 'Development simulation — not live Chief authority';
-    }
-    if (operatingMode === 'LIVE') {
-      return 'Chief policy authority verified';
-    }
-    if (operatingMode === 'CACHED' || operatingMode === 'STALE') {
-      return 'Cached Chief state — policy authority not currently reverified';
-    }
-    return 'Policy authority unavailable';
-  };
+  const modeTone = displayMode === 'LIVE' && provenance === 'live'
+    ? 'bg-emerald-950 border-emerald-700 text-emerald-300'
+    : displayMode === 'UNAVAILABLE' || displayMode === 'OFFLINE'
+      ? 'bg-zinc-900 border-zinc-700 text-zinc-300'
+      : 'bg-amber-950 border-amber-700 text-amber-300';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#021209]/85 backdrop-blur-sm animate-fadeIn">
-      <div 
-        className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-emerald-900/50 bg-[#062416] shadow-2xl overflow-hidden"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="farm-agent-title"
-      >
-        
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-emerald-950/80 bg-[#04190e]">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#0a2f1c] border border-emerald-800/60 text-emerald-300 flex items-center justify-center">
-              <Sprout className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 id="farm-agent-title" className="text-base font-semibold text-white tracking-tight">
-                  Farm Agent Operations &amp; Flock Telemetry
-                </h2>
-                {renderOperatingModeBadge()}
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#021209]/85 backdrop-blur-sm" role="presentation">
+        <div className="w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl border border-emerald-900/50 bg-[#062416] shadow-2xl overflow-hidden" role="dialog" aria-modal="true" aria-labelledby="farm-agent-title">
+          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-emerald-950/80 bg-[#04190e]">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-[#0a2f1c] border border-emerald-800/60 text-emerald-300 flex items-center justify-center shrink-0">
+                <Sprout className="w-5 h-5" aria-hidden="true" />
               </div>
-              <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
-                Poultry-First Farm Subsystem • {getPolicyAuthorityWording()}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 self-end sm:self-center">
-            {isDevMode && (
-              <div className="flex items-center gap-1.5 bg-[#140b02] p-1 rounded-lg border border-amber-900/60 text-xs font-mono">
-                <span className="text-amber-400 text-[10px] uppercase px-1 font-bold">[DEV] Mode:</span>
-                {(['LIVE', 'SIMULATION', 'OFFLINE', 'NOT CONFIGURED', 'STALE'] as FarmOperatingMode[]).map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setDevModeOverride(mode)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
-                      operatingMode === mode 
-                        ? mode === 'LIVE' 
-                          ? 'bg-emerald-600 text-white' 
-                          : mode === 'SIMULATION' 
-                          ? 'bg-amber-600 text-white' 
-                          : mode === 'NOT CONFIGURED' 
-                          ? 'bg-purple-600 text-white' 
-                          : 'bg-zinc-700 text-white' 
-                        : 'text-amber-400/60 hover:text-white'
-                    }`}
-                  >
-                    {mode.slice(0, 4)}
-                  </button>
-                ))}
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 id="farm-agent-title" className="text-base font-semibold text-white tracking-tight">Farm Agent domain</h2>
+                  <span className={`px-2 py-0.5 rounded border text-[10px] font-mono font-bold ${modeTone}`}>{displayMode}</span>
+                </div>
+                <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">{modeDescription}</p>
               </div>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-emerald-300/60 hover:text-white hover:bg-[#0a2e1b] transition-colors"
-              aria-label="Close dialog"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Provenance Warning Banner */}
-        {isDevMode && operatingMode === 'SIMULATION' && (
-          <div className="px-6 py-2.5 bg-amber-950/40 border-b border-amber-900/60 flex items-center justify-between gap-3 text-xs text-amber-200 font-mono">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>
-                <strong>SIMULATION / DEVELOPMENT DATA:</strong> Telemetry is generated by mathematical sensor simulators. Not operational truth. It must not be confused with real farm hardware or worker reporting.
-              </span>
             </div>
-          </div>
-        )}
-
-        {/* Navigation Tabs */}
-        <div className="px-6 py-2 border-b border-emerald-950/80 bg-[#03140c] flex items-center gap-1 text-xs overflow-x-auto no-scrollbar font-mono">
-          {navTabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                activeTab === tab.id 
-                  ? 'bg-emerald-600 text-white font-semibold shadow-sm' 
-                  : 'text-emerald-300/70 hover:text-white hover:bg-[#082a19]'
-              }`}
-            >
-              <span>{tab.label}</span>
-              {tab.hasAlert && (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              {isDevMode && (
+                <select
+                  aria-label="Development Farm Agent presentation mode"
+                  value={displayMode}
+                  onChange={event => setDevModeOverride(event.target.value as FarmOperatingMode)}
+                  className="bg-amber-950/40 border border-amber-800 text-amber-200 rounded-lg px-2 py-1 text-[10px] font-mono"
+                >
+                  {(['LIVE', 'SIMULATION', 'OFFLINE', 'NOT CONFIGURED', 'STALE'] as FarmOperatingMode[]).map(mode => <option key={mode} value={mode}>{mode}</option>)}
+                </select>
               )}
-            </button>
-          ))}
-        </div>
+              <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-emerald-300/60 hover:text-white hover:bg-[#0a2e1b]" aria-label="Close Farm Agent dialog">
+                <X className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+          </header>
 
-        {/* Content Body */}
-        <div className="p-6 overflow-y-auto max-h-[66vh] space-y-5">
-          
-          {/* TAB 1: OVERVIEW */}
-          {activeTab === 'overview' && (
-            <div className="space-y-5">
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-3 font-mono">
-                  <div className="w-12 h-12 mx-auto rounded-xl bg-[#0a2e1b] border border-emerald-800 flex items-center justify-center text-emerald-400">
-                    <Sprout className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-base font-bold text-white font-mono">Farm Agent Telemetry Unavailable</p>
-                    <p className="text-xs text-emerald-300/80">Operating State: {operatingMode}</p>
-                  </div>
-                  <p className="text-xs max-w-md mx-auto text-emerald-400/60 leading-relaxed">
-                    No live hardware telemetry or physical sensor link is connected. Under Chief safety invariants, synthetic farm telemetry, simulated pressure values, and mock flock counts are disabled in production.
-                  </p>
-                  <div className="pt-2">
-                    <button
-                      onClick={() => setIsWorkerReportOpen(true)}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs"
-                    >
-                      + Submit Worker Report
+          {isDevMode && (
+            <div className="px-6 py-2 bg-amber-950/40 border-b border-amber-800/60 text-amber-200 text-xs font-mono flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 shrink-0" aria-hidden="true" />
+              DEVELOPMENT FIXTURES — flock counts, sensors, workers, equipment, tasks and alerts below are synthetic unless they are local worker reports.
+            </div>
+          )}
+
+          <nav className="px-6 py-2 border-b border-emerald-950/80 bg-[#03140c] flex gap-1 overflow-x-auto" aria-label="Farm Agent sections">
+            {tabs.map(tab => (
+              <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-pressed={activeTab === tab.id} className={`px-3 py-1.5 rounded-lg text-xs font-mono whitespace-nowrap ${activeTab === tab.id ? 'bg-emerald-600 text-white' : 'text-emerald-300/70 hover:text-white hover:bg-[#082a19]'}`}>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="p-6 overflow-y-auto max-h-[66vh] space-y-5">
+            {activeTab === 'overview' && (
+              <section className="space-y-4">
+                {!isDevMode ? (
+                  <div className="rounded-xl border border-emerald-950/80 bg-[#03140c] p-6 text-center space-y-3">
+                    <Sprout className="w-9 h-9 mx-auto text-emerald-400" aria-hidden="true" />
+                    <h3 className="text-sm font-semibold text-white">Farm telemetry not provisioned in this client</h3>
+                    <p className="text-xs text-emerald-300/60 max-w-xl mx-auto">
+                      Production does not substitute bundled sensor, flock, equipment or task fixtures for real farm data. Local authenticated worker reports remain available below and can synchronize only through the Chief API.
+                    </p>
+                    <button type="button" onClick={() => setIsWorkerReportOpen(true)} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs">
+                      <Plus className="w-4 h-4" aria-hidden="true" /> Submit worker report
                     </button>
                   </div>
-                </div>
-              ) : (
-                <>
-                  {/* 1. Urgent Alerts Priority Row */}
-                  <div className="p-4 rounded-xl border border-rose-900/70 bg-[#160609] space-y-2.5 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                        <span className="text-xs font-mono font-bold text-rose-300 uppercase tracking-wider">
-                          Urgent Safety Interlock &amp; Alert
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-mono bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-800">
-                        STOP ACTIVE
-                      </span>
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                      <div>
-                        <h4 className="font-bold text-white text-xs">
-                          Hydraulic Line Pressure Interlock: Zone B Pump Halted
-                        </h4>
-                        <p className="text-rose-200/80 text-[11px] mt-0.5">
-                          Transducer PT-201 recorded 142.4 PSI (threshold 120.0 PSI). Solenoid cutoff open.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          onClose();
-                          onNavigateToApprovals();
-                        }}
-                        className="self-start sm:self-center px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-rose-900 hover:bg-rose-800 text-white transition-colors shrink-0"
-                      >
-                        View in Attention Inbox →
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 2. Flock Status Summary */}
-                  <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Bird className="w-4 h-4 text-emerald-400" />
-                        <h3 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                          Flock Operational Status (30,650 Total Birds)
-                        </h3>
-                      </div>
-                      <span className="text-xs font-mono text-emerald-400 font-bold">
-                        Mortality: 0.02% (Nominal)
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-                      <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                        <span className="text-emerald-400/60 text-[10px] block">House 1 (Layers)</span>
-                        <span className="text-base font-bold text-white">12,450 Birds</span>
-                        <span className="text-[10px] text-emerald-400 block mt-0.5">Lay Rate: 95.1%</span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                        <span className="text-emerald-400/60 text-[10px] block">House 2 (Broilers)</span>
-                        <span className="text-base font-bold text-white">18,200 Birds</span>
-                        <span className="text-[10px] text-emerald-400 block mt-0.5">Week 4 • 23.8°C</span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                        <span className="text-emerald-400/60 text-[10px] block">Feed Consumed Today</span>
-                        <span className="text-base font-bold text-white">4,270 kg</span>
-                        <span className="text-[10px] text-emerald-400/70 block mt-0.5">Silos at 68% cap</span>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                        <span className="text-emerald-400/60 text-[10px] block">Water Intake Ratio</span>
-                        <span className="text-base font-bold text-emerald-300">1.92 : 1</span>
-                        <span className="text-[10px] text-emerald-400/70 block mt-0.5">8,200 L total</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. Operational Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>Latest Worker Submissions</span>
-                        </span>
-                        <button 
-                          onClick={() => setActiveTab('reports')}
-                          className="text-[10px] font-mono text-emerald-400 hover:underline"
-                        >
-                          All Reports →
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {INITIAL_WORKER_SUBMISSIONS.map(wrk => (
-                          <div key={wrk.id} className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 font-mono text-[11px] space-y-0.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-white font-bold">{wrk.workerName} ({wrk.role})</span>
-                              <span className="text-emerald-400/60">{wrk.checkInTime}</span>
-                            </div>
-                            <p className="text-emerald-300/80 font-sans text-xs">{wrk.notes}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <Wrench className="w-3.5 h-3.5" />
-                          <span>Open Tasks &amp; Equipment Issues</span>
-                        </span>
-                        <button 
-                          onClick={() => setActiveTab('tasks')}
-                          className="text-[10px] font-mono text-emerald-400 hover:underline"
-                        >
-                          All 4 Tasks →
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {INITIAL_FARM_TASKS.slice(0, 2).map(task => (
-                          <div key={task.id} className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 font-mono text-[11px] space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-white font-bold truncate max-w-[200px]">{task.title}</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                task.priority === 'Critical' ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-amber-950 text-amber-300'
-                              }`}>
-                                {task.priority}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-emerald-400/60 text-[10px]">
-                              <span>Assigned: {task.assignedTo}</span>
-                              <span>Due: {task.dueTime}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4. Production Anomalies & Sensor Health */}
-                  <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
-                    <div className="flex items-center gap-3">
-                      <Egg className="w-4 h-4 text-emerald-400" />
-                      <div>
-                        <span className="text-white font-bold block">Production Telemetry: 11,840 Eggs Collected Today</span>
-                        <span className="text-[11px] text-emerald-400/60">Grade A Yield: 98.4% • Zero egg shell microfracture anomalies</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-bold">
-                        NOMINAL
-                      </span>
-                      <button 
-                        onClick={() => setActiveTab('production')}
-                        className="text-xs text-emerald-400 hover:underline"
-                      >
-                        Inspect →
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* TAB 2: DAILY REPORTS */}
-          {activeTab === 'reports' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono">
-                <div>
-                  <span className="text-emerald-400 uppercase tracking-wider font-semibold block">
-                    Field Specialist &amp; Automated Environmental Daily Logs
-                  </span>
-                  <span className="text-emerald-400/60 text-[11px]">
-                    {isDevMode ? INITIAL_DAILY_REPORTS.length + workerReports.length : workerReports.length} total sealed reports • {queuedCount} queued offline
-                  </span>
-                </div>
-                <button
-                  onClick={() => setIsWorkerReportOpen(true)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-sm transition-colors self-start sm:self-auto"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ New Worker Report</span>
-                </button>
-              </div>
-
-              {/* Real-time Worker Reports from local/synced queue */}
-              {workerReports.length > 0 && (
-                <div className="space-y-2.5">
-                  <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-bold block">
-                    Recent Mobile Worker Submissions ({workerReports.length})
-                  </span>
-                  {workerReports.map(rep => (
-                    <div key={rep.id} className="p-3.5 rounded-xl border border-emerald-900/60 bg-[#03180d] space-y-2 text-xs font-mono">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-xs">{rep.reportNumber}</span>
-                            <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800">
-                              {rep.categoryLabel}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-emerald-400/60 block">
-                            Logged by {rep.workerName} ({rep.workerRole}) • {rep.timestampFormatted}
-                          </span>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          rep.status === 'accepted_by_chief'
-                            ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
-                            : rep.status === 'queued'
-                            ? 'bg-amber-950 text-amber-300 border-amber-600'
-                            : 'bg-rose-950 text-rose-300 border-rose-600'
-                        }`}>
-                          {rep.status === 'accepted_by_chief' ? 'ACCEPTED BY CHIEF' : rep.status === 'queued' ? 'QUEUED (OFFLINE)' : 'NEEDS CORRECTION'}
-                        </span>
-                      </div>
-                      <p className="text-emerald-100 font-sans text-xs">{rep.summary}</p>
-                      {rep.backendConfirmationHash && (
-                        <div className="text-[10px] text-emerald-400/60 flex items-center justify-between pt-1 border-t border-emerald-950">
-                          <span>Hash: {rep.backendConfirmationHash.slice(0, 24)}...</span>
-                          <span>Confirmed: {rep.backendConfirmedAt}</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {isDevMode && (
-                <div className="space-y-3">
-                  <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400/80 font-bold block pt-1">
-                    Authoritative Baseline Logs (Dev Simulation Fixtures)
-                  </span>
-                  {INITIAL_DAILY_REPORTS.map(rep => (
-                    <div key={rep.id} className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2.5 text-xs">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 font-mono">
-                        <div>
-                          <span className="font-bold text-white text-xs block">{rep.author} ({rep.authorRole})</span>
-                          <span className="text-emerald-400/60 text-[11px]">{rep.flockHouse} • Shift: {rep.shift}</span>
-                        </div>
-                        <span className="text-emerald-400 font-bold tabular-nums text-[11px]">{rep.timestamp}</span>
-                      </div>
-                      <p className="text-emerald-200/90 leading-relaxed font-sans">{rep.summary}</p>
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-semibold block">
-                          Key Observations:
-                        </span>
-                        <ul className="list-disc pl-4 text-emerald-300/70 font-mono text-[11px] space-y-0.5">
-                          {rep.keyObservations.map((obs, idx) => (
-                            <li key={idx}>{obs}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="pt-2 border-t border-emerald-950 text-[10px] font-mono text-emerald-400/50 flex flex-wrap items-center justify-between gap-1">
-                        <span>Submitted via: {rep.submittedVia}</span>
-                        <span>Hash: {rep.verificationHash}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!isDevMode && workerReports.length === 0 && (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No worker reports logged yet.</p>
-                  <p className="text-xs">
-                    Device local report store is empty. Live farm agent telemetry is not connected.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: TASKS */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Authoritative Operational Tasks ({isDevMode ? INITIAL_FARM_TASKS.length : 0})
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">{getPolicyAuthorityWording()}</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No authoritative farm tasks dispatched.</p>
-                  <p className="text-xs">
-                    Hardware task scheduler is disconnected. Synthetic tasks are disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {INITIAL_FARM_TASKS.map(task => (
-                    <div 
-                      key={task.id}
-                      className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
-                        task.isInterlockTriggered 
-                          ? 'border-rose-900/60 bg-[#160609]' 
-                          : 'border-emerald-950/80 bg-[#041a10]'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-xs">{task.title}</span>
-                            {task.isInterlockTriggered && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
-                                STOP Interlock
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-emerald-400/60 text-[11px]">
-                            Category: {task.category} • Assigned to: <strong className="text-emerald-200">{task.assignedTo}</strong>
-                          </span>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            task.priority === 'Critical' 
-                              ? 'bg-rose-950 text-rose-300 border border-rose-800' 
-                              : 'bg-amber-950 text-amber-300'
-                          }`}>
-                            {task.priority} Priority
-                          </span>
-                          <span className="block text-[10px] text-emerald-400/60 mt-0.5">Due: {task.dueTime}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-emerald-950 text-[11px]">
-                        <span>Status: <strong className="text-white">{task.status}</strong></span>
-                        {task.policyRule && <span>Policy Bound: {task.policyRule}</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: PRODUCTION */}
-          {activeTab === 'production' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Commercial Poultry Production &amp; Grade Verification
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">House 1 Commercial Layers</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">Production telemetry unavailable.</p>
-                  <p className="text-xs">
-                    Egg count intake and commercial sorting links are disconnected. Synthetic production metrics are disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                    <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                      <span className="text-[11px] text-emerald-400/60 block">Eggs Collected Today</span>
-                      <span className="text-xl font-bold text-white tabular-nums">{INITIAL_PRODUCTION_STATE.eggCountToday?.toLocaleString()}</span>
-                      <span className="text-[10px] text-emerald-400 block">95.1% Lay Rate (Expected: 94.8%)</span>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                      <span className="text-[11px] text-emerald-400/60 block">Grade A Quality</span>
-                      <span className="text-xl font-bold text-emerald-300 tabular-nums">{INITIAL_PRODUCTION_STATE.gradeAPct}%</span>
-                      <span className="text-[10px] text-emerald-400/70 block">Optical laser inspected</span>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                      <span className="text-[11px] text-emerald-400/60 block">Average Egg Weight</span>
-                      <span className="text-xl font-bold text-white tabular-nums">{INITIAL_PRODUCTION_STATE.averageWeightGrams} g</span>
-                      <span className="text-[10px] text-emerald-400/70 block">Large commercial class</span>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                      <span className="text-[11px] text-emerald-400/60 block">Production Anomaly Flag</span>
-                      <span className="text-xl font-bold text-emerald-400">Zero</span>
-                      <span className="text-[10px] text-emerald-400/70 block">No shell anomalies</span>
-                    </div>
-                  </div>
-
-                  {/* Unavailable Module */}
-                  <div className="p-5 rounded-xl border border-purple-950/80 bg-[#100619] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Wrench className="w-4 h-4 text-purple-400" />
-                        <h4 className="text-xs font-mono font-bold text-purple-200 uppercase tracking-wider">
-                          Automated Poultry Weigh-Back &amp; Packing Line Sorter
-                        </h4>
-                      </div>
-                      <span className="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-950 text-purple-300 border border-purple-800">
-                        Not configured
-                      </span>
-                    </div>
-                    <p className="text-xs text-purple-200/80 font-mono leading-relaxed">
-                      Hardware telemetry module not configured on this installation. Chief will not synthesize fake packing conveyor metrics. Install RS-485 Optical Sorter bridge to enable live data.
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* TAB 5: FLOCK */}
-          {activeTab === 'flock' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Poultry Flock Roster &amp; Environmental Invariants
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">{isDevMode ? '2 Active Housing Units' : '0 Connected'}</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No live flock telemetry connected.</p>
-                  <p className="text-xs">
-                    Flock housing telemetry is offline. Synthetic livestock and flock counts are disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {isDataStale && (
-                    <div className="p-3.5 rounded-xl border border-amber-800/80 bg-amber-950/40 flex items-center justify-between gap-3 text-xs font-mono text-amber-200 shadow-sm">
-                      <div className="flex items-center gap-2.5">
-                        <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                        <div>
-                          <span className="font-bold text-white block">STALE FLOCK TELEMETRY (CACHED):</span>
-                          <span className="text-amber-300/80">
-                            Environmental readings are cached from the last synchronization snapshot. Live sensor link is disconnected.
-                          </span>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-900 text-amber-300 border border-amber-700 shrink-0">
-                        CACHED READ
-                      </span>
-                    </div>
-                  )}
-                  <div className="space-y-4">
-                    {INITIAL_POULTRY_FLOCKS.map(flock => (
-                      <div key={flock.id} className="p-5 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-4 text-xs font-mono">
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Bird className="w-4 h-4 text-emerald-400" />
-                              <h4 className="text-sm font-bold text-white">{flock.name}</h4>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                {flock.flockType.toUpperCase()}
-                              </span>
-                            </div>
-                            <p className="text-emerald-400/60 text-[11px] mt-0.5">
-                              {flock.houseNumber} • Breed: {flock.breed} • Age: {flock.ageWeeks} weeks
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-base font-bold text-white">{flock.birdCount.toLocaleString()} Birds</span>
-                            <span className="block text-[10px] text-emerald-400/60">Mortality today: {flock.dailyMortalityCount} ({flock.mortalityRatePct}%)</span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                          <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                            <span className="text-[10px] text-emerald-400/60 block">House Temp</span>
-                            <span className="text-sm font-bold text-white">{flock.environment.tempC}°C</span>
-                            <span className="text-[10px] text-emerald-400/70 block">Target: {flock.environment.targetTempC}°C</span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                            <span className="text-[10px] text-emerald-400/60 block">Ventilation Output</span>
-                            <span className="text-sm font-bold text-white">{flock.environment.ventilationCfm.toLocaleString()} CFM</span>
-                            <span className="text-[10px] text-emerald-400/70 block">Humidity: {flock.environment.humidityPct}%</span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                            <span className="text-[10px] text-emerald-400/60 block">Ammonia (NH3) Level</span>
-                            <span className={`text-sm font-bold ${flock.environment.ammoniaPpm > 15 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                              {flock.environment.ammoniaPpm} ppm
-                            </span>
-                            <span className="text-[10px] text-emerald-400/70 block">Max Limit: {flock.environment.ammoniaThresholdPpm} ppm</span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-[#03140c] border border-emerald-950">
-                            <span className="text-[10px] text-emerald-400/60 block">Water / Feed Ratio</span>
-                            <span className="text-sm font-bold text-emerald-300">{flock.waterToFeedRatio} : 1</span>
-                            <span className="text-[10px] text-emerald-400/70 block">Feed: {flock.feedIntakeKg}kg / Water: {flock.waterIntakeLiters}L</span>
-                          </div>
-                        </div>
-                        <div className="text-[10px] text-emerald-400/50 pt-1 border-t border-emerald-950">
-                          {flock.lastInspectionTime}
-                        </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      ['Flock fixtures', INITIAL_POULTRY_FLOCKS.length],
+                      ['Task fixtures', INITIAL_FARM_TASKS.length],
+                      ['Sensor fixtures', INITIAL_FARM_SENSORS.length],
+                      ['Local reports', workerReports.length]
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="rounded-xl border border-amber-900/40 bg-[#100d04] p-3">
+                        <span className="text-[10px] font-mono text-amber-300/60 block">{label}</span>
+                        <span className="text-xl font-bold text-white font-mono">{value}</span>
                       </div>
                     ))}
                   </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* TAB 6: WORKERS */}
-          {activeTab === 'workers' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono">
-                <div>
-                  <span className="text-emerald-400 uppercase tracking-wider font-semibold block">
-                    Field Personnel Active On-Site
-                  </span>
-                  <span className="text-emerald-400/60 text-[11px]">Worker Link Check-ins &amp; Mobile Dispatch</span>
-                </div>
-                <button
-                  onClick={() => setIsWorkerReportOpen(true)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-mono font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-sm transition-colors self-start sm:self-auto"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Log Field Submission</span>
-                </button>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No worker check-ins logged.</p>
-                  <p className="text-xs">
-                    Live attendance telemetry is disconnected. Synthetic worker activity is disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {INITIAL_WORKER_SUBMISSIONS.map(wrk => (
-                    <div key={wrk.id} className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2 text-xs font-mono">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <HardHat className="w-4 h-4 text-emerald-400" />
-                          <span className="font-bold text-white">{wrk.workerName}</span>
-                          <span className="text-emerald-400/60">({wrk.role})</span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          {wrk.status}
-                        </span>
-                      </div>
-                      <p className="text-emerald-200/90 font-sans text-xs">{wrk.notes}</p>
-                      <div className="flex items-center justify-between pt-1 border-t border-emerald-950 text-[11px] text-emerald-400/60">
-                        <span>Assigned Zone: {wrk.assignedZone}</span>
-                        <span>Check-in: {wrk.checkInTime}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 7: EQUIPMENT */}
-          {activeTab === 'equipment' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Farm Hardware &amp; Actuators
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">Interlocks &amp; Telemetry</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No physical equipment telemetry connected.</p>
-                  <p className="text-xs">
-                    Hardware actuator bus is offline. Synthetic equipment telemetry is disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {INITIAL_FARM_EQUIPMENT.map(eq => (
-                    <div 
-                      key={eq.id}
-                      className={`p-4 rounded-xl border space-y-2.5 text-xs font-mono ${
-                        eq.operatingStatus === 'Tripped Interlock'
-                          ? 'border-rose-900/60 bg-[#160609]'
-                          : eq.operatingStatus === 'Not Configured'
-                          ? 'border-purple-950/80 bg-[#100619]'
-                          : 'border-emerald-950/80 bg-[#041a10]'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-xs">{eq.name}</span>
-                          </div>
-                          <span className="text-emerald-400/60 text-[11px]">
-                            {eq.equipmentType} • Zone: {eq.zone}
-                          </span>
-                        </div>
-                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold self-start ${
-                          eq.operatingStatus === 'Tripped Interlock'
-                            ? 'bg-rose-950 text-rose-300 border border-rose-800'
-                            : eq.operatingStatus === 'Not Configured'
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                            : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                        }`}>
-                          {eq.operatingStatus}
-                        </span>
-                      </div>
-                      {eq.isConfigured && eq.telemetry && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                          {Object.entries(eq.telemetry).map(([k, v]) => (
-                            <div key={k} className="p-2 rounded bg-[#03140c] border border-emerald-950">
-                              <span className="text-[10px] text-emerald-400/60 block">{k}</span>
-                              <span className="text-white font-bold">{v}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {!eq.isConfigured && (
-                        <div className="p-2.5 rounded bg-purple-950/40 text-purple-200 text-xs">
-                          Hardware sensor telemetry kit not installed on this silo. Status honestly reported as <strong>Not configured</strong>.
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 8: ALERTS */}
-          {activeTab === 'alerts' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Farm Safety Alarms &amp; Interlocks
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">{isDevMode ? INITIAL_FARM_ALERTS.length : 0} active notifications</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No active farm hardware alerts reported.</p>
-                  <p className="text-xs">
-                    Hardware alert monitoring is offline. Synthetic alarms are disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {INITIAL_FARM_ALERTS.map(alt => (
-                    <div 
-                      key={alt.id}
-                      className={`p-4 rounded-xl border space-y-2 text-xs font-mono ${
-                        alt.isHardwareInterlock 
-                          ? 'border-rose-900/60 bg-[#160609]' 
-                          : 'border-amber-900/50 bg-[#140e06]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {alt.isHardwareInterlock ? (
-                            <AlertOctagon className="w-4 h-4 text-rose-400" />
-                          ) : (
-                            <AlertTriangle className="w-4 h-4 text-amber-400" />
-                          )}
-                          <span className="font-bold text-white text-xs">{alt.title}</span>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          alt.isHardwareInterlock ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-amber-950 text-amber-300'
-                        }`}>
-                          {alt.severity}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-4 text-[11px] text-emerald-300/80">
-                        <span>Location: {alt.location}</span>
-                        <span>Recorded: <strong className="text-white">{alt.triggerValue}</strong></span>
-                        <span>Threshold: {alt.thresholdValue}</span>
-                      </div>
-                      <div className="p-2.5 rounded bg-[#03140c] border border-emerald-950 text-xs">
-                        <span className="text-emerald-400/60 text-[10px] block uppercase font-bold">Required Remediation:</span>
-                        <p className="text-emerald-100 font-sans mt-0.5">{alt.remediation}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 9: SENSORS */}
-          {activeTab === 'sensors' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400 uppercase tracking-wider font-semibold">
-                  Farm Sensor Array Telemetry
-                </span>
-                <span className="text-emerald-400/60 text-[11px]">{isDevMode ? INITIAL_FARM_SENSORS.length : 0} sensors provisioned</span>
-              </div>
-              {!isDevMode ? (
-                <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                  <p className="text-sm font-bold text-white">No physical sensors provisioned or connected.</p>
-                  <p className="text-xs">
-                    Sensor telemetry bus is offline. Synthetic sensor values are disabled in production.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
-                  {INITIAL_FARM_SENSORS.map(sns => (
-                    <div 
-                      key={sns.id}
-                      className={`p-3.5 rounded-xl border space-y-1.5 ${
-                        sns.status === 'Not Configured'
-                          ? 'border-purple-950/80 bg-[#100619]'
-                          : sns.status === 'Drift Warning'
-                          ? 'border-amber-950 bg-[#120e06]'
-                          : 'border-emerald-950/80 bg-[#041a10]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-white truncate max-w-[200px]">{sns.sensorName}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          sns.status === 'Online'
-                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-900'
-                            : sns.status === 'Not Configured'
-                            ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                            : 'bg-amber-950 text-amber-300 border border-amber-800'
-                        }`}>
-                          {sns.status}
-                        </span>
-                      </div>
-                      <div className="text-emerald-300/80 text-[11px]">
-                        Reading: <strong className="text-white">{sns.currentReading}</strong>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-emerald-400/50 pt-1 border-t border-emerald-950">
-                        <span>Zone: {sns.zone}</span>
-                        <span>Heartbeat: {sns.lastHeartbeat}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 10: HISTORY */}
-          {activeTab === 'history' && (
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">
-                  Farm Agent Chronology &amp; Sensor Event Log
-                </h3>
-                <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
-                  All environmental and hardware events sealed with cryptographic hashes
-                </p>
-              </div>
-              <div className="space-y-2.5 font-mono text-xs">
-                {!isDevMode ? (
-                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
-                    <p className="text-sm font-bold text-white">No authoritative telemetry chronology available.</p>
-                    <p className="text-xs">
-                      Synthetic event logs are disabled in production.
-                    </p>
-                  </div>
-                ) : (
-                  [
-                    { time: "07:18 AM", event: "Tomas Rivera submitted morning flock welfare report via Worker Link PWA", code: "REP_FLOCK_WALK" },
-                    { time: "07:05 AM", event: "Cross-sensor drift alert logged on Bay 4 probe (+14.3% delta vs redundant check)", code: "WARN_SENSOR_DRIFT" },
-                    { time: "06:58 AM", event: "CRITICAL STOP INTERLOCK: Zone B pump line pressure cut off at 142.4 PSI", code: "STOP_PRESSURE_RELAY" },
-                    { time: "06:30 AM", event: "Automated negative static pressure overnight tunnel fan audit completed", code: "AUDIT_ENV_FAN" },
-                    { time: "06:15 AM", event: "Tomas Rivera clocked in on site for morning shift", code: "WORKER_CHECK_IN" }
-                  ].map((item, idx) => (
-                    <div key={idx} className="p-3 rounded-lg border border-emerald-950/80 bg-[#03140c] flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-emerald-400 font-bold">{item.time}</span>
-                        <span className="text-emerald-100">{item.event}</span>
-                      </div>
-                      <span className="text-[10px] text-emerald-400/50 px-1.5 py-0.5 rounded bg-[#062416] border border-emerald-950 shrink-0">
-                        {item.code}
-                      </span>
-                    </div>
-                  ))
                 )}
-              </div>
-            </div>
-          )}
-        </div>
+                <div className="rounded-xl border border-emerald-950/80 bg-[#03140c] p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div>
+                    <p className="text-white font-semibold">Local worker report queue</p>
+                    <p className="text-emerald-300/60">{queuedCount} report{queuedCount === 1 ? '' : 's'} queued locally{isDataStale ? ' • cached data is stale' : ''}.</p>
+                  </div>
+                  <button type="button" onClick={() => setIsWorkerReportOpen(true)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold">New report</button>
+                </div>
+              </section>
+            )}
 
-        {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-emerald-950/80 bg-[#04190e] flex items-center justify-between text-xs font-mono">
-          <span className="text-emerald-400/60">
-            Authoritative Farm Agent Domain • Poultry-First Subsystem
-          </span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl border border-emerald-800/60 bg-[#0a2f1c] hover:bg-[#0e3b23] text-emerald-100 transition-colors"
-          >
-            Close Farm Domain
-          </button>
+            {activeTab === 'reports' && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div><h3 className="text-sm font-semibold text-white">Worker reports</h3><p className="text-[11px] text-emerald-300/60">Local IDs are client identifiers; only a backend confirmation hash proves Chief acceptance.</p></div>
+                  <button type="button" onClick={() => setIsWorkerReportOpen(true)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">+ Report</button>
+                </div>
+                {workerReports.length === 0 && !isDevMode ? (
+                  <p className="rounded-xl border border-emerald-950/80 bg-[#03140c] p-4 text-xs text-emerald-300/60">No local worker reports for this authenticated user.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {workerReports.map(report => (
+                      <article key={report.id} className="rounded-xl border border-emerald-950/80 bg-[#03140c] p-3">
+                        <div className="flex flex-wrap justify-between gap-2"><span className="text-sm text-white font-semibold">{report.categoryLabel}</span><span className="text-[10px] font-mono text-emerald-300">{report.status.replaceAll('_', ' ')}</span></div>
+                        <p className="text-xs text-emerald-200/80 mt-1">{report.summary}</p>
+                        <p className="text-[10px] font-mono text-emerald-400/50 mt-1">Local ID: {report.reportNumber}{report.backendConfirmationHash ? ` • Chief verification: ${report.backendConfirmationHash}` : ' • No Chief acceptance receipt recorded'}</p>
+                      </article>
+                    ))}
+                    {isDevMode && INITIAL_DAILY_REPORTS.map(report => (
+                      <article key={report.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><p className="text-[10px] font-mono text-amber-300">DEV DAILY REPORT FIXTURE</p><p className="text-xs text-white mt-1">{report.summary}</p></article>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'tasks' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Farm tasks" /> : INITIAL_FARM_TASKS.map(task => (
+                  <article key={task.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><div className="flex justify-between gap-2"><span className="text-sm text-white font-semibold">{task.title}</span><span className="text-[10px] text-amber-300 font-mono">DEV • {task.status}</span></div><p className="text-xs text-amber-200/70 mt-1">Assigned fixture: {task.assignedTo} • Due {task.dueTime}</p></article>
+                ))}
+              </section>
+            )}
+
+            {activeTab === 'production' && (
+              <section>
+                {!isDevMode ? <Unavailable label="Production telemetry" /> : (
+                  <div className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-4 space-y-2"><div className="flex items-center gap-2 text-amber-300"><Egg className="w-4 h-4" aria-hidden="true" /><strong className="text-xs">DEV PRODUCTION FIXTURE</strong></div><p className="text-xs text-amber-200/80">{INITIAL_PRODUCTION_STATE.configurationNotice}</p><pre className="text-[10px] text-amber-100/70 whitespace-pre-wrap">{JSON.stringify(INITIAL_PRODUCTION_STATE, null, 2)}</pre></div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'flock' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Flock telemetry" /> : INITIAL_POULTRY_FLOCKS.map(flock => (
+                  <article key={flock.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><div className="flex items-center gap-2"><Bird className="w-4 h-4 text-amber-300" aria-hidden="true" /><span className="text-sm text-white font-semibold">{flock.name}</span></div><p className="text-xs text-amber-200/70 mt-1">DEV fixture • {flock.houseNumber} • {flock.birdCount} birds • status {flock.status}</p></article>
+                ))}
+              </section>
+            )}
+
+            {activeTab === 'workers' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Worker roster" /> : INITIAL_WORKER_SUBMISSIONS.map(worker => (
+                  <article key={worker.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><div className="flex justify-between gap-2"><span className="text-sm text-white font-semibold">{worker.workerName}</span><span className="text-[10px] text-amber-300 font-mono">DEV • {worker.status}</span></div><p className="text-xs text-amber-200/70 mt-1">{worker.role} • {worker.assignedZone}</p></article>
+                ))}
+              </section>
+            )}
+
+            {activeTab === 'equipment' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Equipment telemetry" /> : INITIAL_FARM_EQUIPMENT.map(equipment => (
+                  <article key={equipment.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><div className="flex items-center gap-2"><Wrench className="w-4 h-4 text-amber-300" aria-hidden="true" /><span className="text-sm text-white font-semibold">{equipment.name}</span></div><p className="text-xs text-amber-200/70 mt-1">DEV fixture • {equipment.zone} • {equipment.operatingStatus}</p></article>
+                ))}
+              </section>
+            )}
+
+            {activeTab === 'alerts' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Farm alerts" /> : INITIAL_FARM_ALERTS.map(alert => (
+                  <article key={alert.id} className="rounded-xl border border-rose-900/50 bg-rose-950/20 p-3"><div className="flex items-start gap-2"><AlertOctagon className="w-4 h-4 text-rose-400 mt-0.5" aria-hidden="true" /><div><p className="text-[10px] font-mono text-rose-300">DEV ALERT FIXTURE • {alert.severity}</p><h3 className="text-sm text-white font-semibold mt-1">{alert.title}</h3><p className="text-xs text-rose-200/70 mt-1">{alert.location} • trigger {alert.triggerValue} • fixture threshold {alert.thresholdValue}</p></div></div></article>
+                ))}
+                {isDevMode && INITIAL_FARM_ALERTS.length > 0 && <button type="button" onClick={() => { onClose(); onNavigateToApprovals(); }} className="px-3 py-1.5 rounded-lg bg-rose-950 border border-rose-700 text-rose-200 text-xs">Open Attention Inbox</button>}
+              </section>
+            )}
+
+            {activeTab === 'sensors' && (
+              <section className="space-y-3">
+                {!isDevMode ? <Unavailable label="Sensor telemetry" /> : INITIAL_FARM_SENSORS.map(sensor => (
+                  <article key={sensor.id} className="rounded-xl border border-amber-900/40 bg-amber-950/10 p-3"><div className="flex justify-between gap-2"><span className="text-sm text-white font-semibold">{sensor.sensorName}</span><span className="text-[10px] font-mono text-amber-300">DEV • {sensor.status}</span></div><p className="text-xs text-amber-200/70 mt-1">{sensor.zone} • reading {sensor.currentReading} • heartbeat field {sensor.lastHeartbeat}</p></article>
+                ))}
+              </section>
+            )}
+          </div>
+
+          <footer className="px-6 py-3 border-t border-emerald-950/80 bg-[#04190e] text-[10px] font-mono text-emerald-400/50 flex flex-wrap justify-between gap-2">
+            <span>Local report persistence ≠ Chief acceptance • STOP remains non-bypassable</span>
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" aria-hidden="true" /> Provenance: {provenance.replace('_', ' ')}</span>
+          </footer>
         </div>
       </div>
 
-      <WorkerReportModal
-        isOpen={isWorkerReportOpen}
-        onClose={() => setIsWorkerReportOpen(false)}
-      />
-    </div>
+      <WorkerReportModal isOpen={isWorkerReportOpen} onClose={() => setIsWorkerReportOpen(false)} />
+    </>
   );
 };
+
+const Unavailable: React.FC<{ label: string }> = ({ label }) => (
+  <div className="rounded-xl border border-emerald-950/80 bg-[#03140c] p-5 text-center">
+    <WifiOff className="w-6 h-6 text-zinc-500 mx-auto" aria-hidden="true" />
+    <p className="text-sm text-white font-semibold mt-2">{label} unavailable</p>
+    <p className="text-xs text-emerald-300/60 mt-1">No authoritative backend data is connected for this production surface. Synthetic fixtures are not substituted.</p>
+  </div>
+);
