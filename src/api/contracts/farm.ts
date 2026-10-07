@@ -28,20 +28,22 @@ export class FarmApiAdapter implements IFarmContract {
     timestamp: string;
     transactionId: string;
   }>> {
-    // Structural validation rules enforced before acceptance
+    // Structural client-side validation rules enforced before acceptance
     if (report.category === 'mortality') {
       const count = Number(report.data.mortalityCount || 0);
       if (count < 0) {
         throw new ChiefApiError({
-          message: 'Validation failed: Mortality count cannot be negative.',
-          code: 'VALIDATION_ERROR',
+          message: 'Mortality count cannot be negative.',
+          code: 'CLIENT_VALIDATION_ERROR',
+          origin: 'client',
           statusCode: 422
         });
       }
       if (count > 5000) {
         throw new ChiefApiError({
-          message: 'Validation failed: Mortality count exceeds single-house emergency threshold. Immediate supervisor STOP required.',
-          code: 'THRESHOLD_BREACH',
+          message: 'Mortality count exceeds single-house emergency threshold. Immediate supervisor STOP required.',
+          code: 'CLIENT_VALIDATION_ERROR',
+          origin: 'client',
           statusCode: 422
         });
       }
@@ -50,8 +52,9 @@ export class FarmApiAdapter implements IFarmContract {
     if (report.category === 'emergency') {
       if (!report.data.immediateActionTaken || String(report.data.immediateActionTaken).trim().length < 5) {
         throw new ChiefApiError({
-          message: 'Validation failed: Emergency report requires documented immediate action taken.',
-          code: 'MISSING_MANDATORY_FIELD',
+          message: 'Emergency report requires documented immediate action taken.',
+          code: 'CLIENT_VALIDATION_ERROR',
+          origin: 'client',
           statusCode: 422
         });
       }

@@ -17,12 +17,17 @@ export class AttentionApiAdapter implements IAttentionContract {
         provenance: 'live'
       };
     } catch (err) {
-      // 1. DEV mode allows isolated development mocks
+      // 1. Auth failures (401, 403) must NEVER serve previous-session cache (fail closed)
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) {
+        throw err;
+      }
+
+      // 2. DEV mode allows isolated development mocks
       if (isChiefDevMode()) {
         return wrapIsolatedMock(ISOLATED_ATTENTION_MOCK, '/attention');
       }
 
-      // 2. Production mode: Check legitimate cache
+      // 3. Production mode: Check legitimate cache
       const cached = getLiveCache<AttentionItem[]>('attention_items');
       if (cached) {
         return {
@@ -36,7 +41,7 @@ export class AttentionApiAdapter implements IAttentionContract {
         };
       }
 
-      // 3. Production mode: Never silently substitute synthetic mock items
+      // 4. Production mode: Never silently substitute synthetic mock items
       throw new ChiefApiError({
         code: 'ATTENTION_UNAVAILABLE',
         message: 'Chief attention inbox is currently unavailable from backend.',

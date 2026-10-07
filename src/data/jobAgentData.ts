@@ -7,33 +7,35 @@ import {
   JobFailureEvent 
 } from '../types/jobAgent';
 
-export const APPLICANT_TRUTH_STORE: ApplicantTruthProfile = {
-  title: "Staff Cloud Infrastructure & Distributed Systems Architect",
-  verifiedSeniority: "11 years production systems experience",
+export const DEV_SAMPLE_APPLICANT_PROFILE: ApplicantTruthProfile = {
+  title: "DEVELOPMENT SAMPLE PROFILE — NOT USER DATA",
+  verifiedSeniority: "Simulation fixture only — not real user credentials",
   verifiedSkills: [
-    "Distributed consensus algorithms (Raft, Paxos)",
-    "Kubernetes operator development & controller runtimes",
-    "Terraform & policy-as-code infrastructure automation",
-    "High-concurrency Go & Rust systems programming",
-    "High-throughput event streaming (Kafka, NATS)",
-    "Zero-downtime PostgreSQL & distributed SQL migrations",
-    "Multi-region disaster recovery & eBPF observability"
+    "Distributed consensus algorithms (Raft, Paxos) [SAMPLE]",
+    "Kubernetes operator development & controller runtimes [SAMPLE]",
+    "Terraform & policy-as-code infrastructure automation [SAMPLE]",
+    "High-concurrency Go & Rust systems programming [SAMPLE]",
+    "High-throughput event streaming (Kafka, NATS) [SAMPLE]",
+    "Zero-downtime PostgreSQL & distributed SQL migrations [SAMPLE]",
+    "Multi-region disaster recovery & eBPF observability [SAMPLE]"
   ],
   truthInvariants: [
-    "The UI and Job Agent must never claim qualifications unverified by Applicant Truth Store.",
-    "Tailored resumes and portfolios must strictly reflect actual production architectural history.",
-    "Do not inflate experience levels, claim unverified security certifications, or forge credentials."
+    "DEVELOPMENT SAMPLE PROFILE — NOT USER DATA: This profile is a mock fixture for dev simulation.",
+    "The UI and Job Agent must never present development fixtures as authoritative user data.",
+    "Production must connect to authoritative backend Applicant Truth Store only."
   ],
   unverifiedProhibitions: [
-    "Professional Security Operations Center (SOC) experience — Not present in truth store",
-    "Security Information & Event Management (SIEM) administration (Splunk/QRadar) — Not certified",
-    "Incident response / digital forensics (DFIR) credentials — Strictly barred from fabrication",
-    "Certified Information Systems Security Professional (CISSP) / CEH — Not held",
+    "Professional Security Operations Center (SOC) experience — Sample prohibition",
+    "Security Information & Event Management (SIEM) administration — Sample prohibition",
+    "Incident response / digital forensics (DFIR) credentials — Sample prohibition",
+    "Certified Information Systems Security Professional (CISSP) / CEH — Sample prohibition",
     "Fabricated employment titles, unrecorded tenures, or inflated headcounts — Barred by policy"
   ],
-  verifiedClearance: "None requested / Civilian commercial infrastructure",
-  lastTruthAudit: "Today at 06:30 AM (Authoritative Hash: sha256:truth_891e...a0)"
+  verifiedClearance: "None requested / Simulation fixture",
+  lastTruthAudit: "DEV Mode Mock Fixture (Not Authoritative Audit)"
 };
+
+export const APPLICANT_TRUTH_STORE = DEV_SAMPLE_APPLICANT_PROFILE;
 
 export const JOB_OVERVIEW_METRICS: JobOverviewMetrics = {
   opportunitiesScanned: 18,

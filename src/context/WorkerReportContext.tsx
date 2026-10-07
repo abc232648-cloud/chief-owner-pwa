@@ -13,15 +13,21 @@ import { useAuth } from './AuthContext';
 import { useChief } from './ChiefContext';
 import { chiefApi, ChiefApiError } from '../api';
 
+import { isChiefDevMode } from '../config/devMode';
+
 const STORAGE_KEY = 'chief_worker_reports_v1';
 
 /**
  * Validates whether an error represents an explicit, authoritative Chief validation/policy rejection.
- * Generic JS errors, HTTP 5xx, 401, 403, 404, network drops, or malformed payloads must NEVER be
- * converted to an authoritative Chief rejection.
+ * Client validation errors, generic JS errors, HTTP 5xx, 401, 403, 404, network drops, or malformed payloads
+ * must NEVER be converted to an authoritative Chief rejection.
  */
 function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
   if (!(err instanceof ChiefApiError)) {
+    return false;
+  }
+  // Local/client validation errors are NEVER an authoritative Chief decision
+  if (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR') {
     return false;
   }
   if (
@@ -38,7 +44,6 @@ function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
   }
   return (
     err.statusCode === 422 ||
-    err.code === 'VALIDATION_ERROR' ||
     err.code === 'POLICY_REJECTION' ||
     err.code === 'THRESHOLD_BREACH' ||
     err.code === 'MISSING_MANDATORY_FIELD'
@@ -67,8 +72,10 @@ const WorkerReportContext = createContext<WorkerReportContextType | undefined>(u
 export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const { state: chiefState } = useChief();
+  const isDev = isChiefDevMode();
 
-  // Load from local storage or fallback to initial samples
+  // Load from local storage or empty array in production
+  // BATCH 13B.3: Fresh production worker report store MUST be empty
   const [reports, setReports] = useState<WorkerReportItem[]>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -77,6 +84,10 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     } catch {
       // ignore JSON parse or storage errors
+    }
+    // Production fresh install MUST start empty
+    if (!isDev) {
+      return [];
     }
     return INITIAL_SAMPLE_WORKER_REPORTS;
   });
@@ -103,6 +114,12 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     evidenceAttachments: WorkerReportAttachment[],
     summary: string
   ): Promise<{ success: boolean; report: WorkerReportItem }> => {
+    // BATCH 13B.3: Worker identity must require genuine authenticated actor.
+    // If no authenticated identity exists, block submission. NEVER invent worker identity.
+    if (!user || !user.userId || !user.name) {
+      throw new Error('Authenticated worker identity required.');
+    }
+
     const categoryMeta = WORKER_REPORT_CATEGORIES.find(c => c.id === category);
     const categoryLabel = categoryMeta?.title || category;
     const now = new Date();
@@ -110,14 +127,16 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const reportNumber = `RPT-2026-${randNum}`;
     const reportId = `rep-${Date.now()}-${randNum}`;
 
-    // Worker attribution
-    const workerId = user?.userId || 'usr-wrk-03';
-    const workerName = user?.name || 'Tomas Rivera';
-    const workerRole = user?.role === 'worker' 
+    // Genuine authenticated worker attribution (no fabricated default fallback)
+    const workerId = user.userId;
+    const workerName = user.name;
+    const workerRole = user.role === 'worker' 
       ? 'Field Poultry Specialist' 
-      : user?.role === 'manager' 
+      : user.role === 'manager' 
       ? 'Operations Manager' 
-      : 'Farm Owner';
+      : user.role === 'owner'
+      ? 'Farm Owner'
+      : 'Field Specialist';
 
     // Step 1: Initialize in 'saved_locally' state
     const initialReport: WorkerReportItem = {
@@ -141,12 +160,13 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setReports(prev => [initialReport, ...prev]);
     setLastSubmittedReport(initialReport);
 
-    // Client-side validation: if invalid, move to 'rejected_needs_correction'
+    // Client-side validation: must NOT be called a Chief rejection
     if (category === 'mortality' && (data.mortalityCount < 0 || data.mortalityCount === undefined)) {
       const rejectedReport: WorkerReportItem = {
         ...initialReport,
         status: 'rejected_needs_correction',
-        rejectionReason: 'Mortality count cannot be empty or negative.'
+        errorOrigin: 'client',
+        rejectionReason: 'Input needs correction — Validated locally. No Chief decision has been made: Mortality count cannot be empty or negative.'
       };
       setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
       setLastSubmittedReport(rejectedReport);
@@ -157,7 +177,8 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const rejectedReport: WorkerReportItem = {
         ...initialReport,
         status: 'rejected_needs_correction',
-        rejectionReason: 'Emergency broadcast requires documented immediate containment action taken.'
+        errorOrigin: 'client',
+        rejectionReason: 'Input needs correction — Validated locally. No Chief decision has been made: Emergency broadcast requires documented immediate containment action taken.'
       };
       setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
       setLastSubmittedReport(rejectedReport);
@@ -211,13 +232,27 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setLastSubmittedReport(acceptedReport);
       return { success: true, report: acceptedReport };
     } catch (err: unknown) {
+      // Check for client-side validation error
+      if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
+        const clientValReport: WorkerReportItem = {
+          ...syncingReport,
+          status: 'rejected_needs_correction',
+          errorOrigin: 'client',
+          rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}`
+        };
+        setReports(prev => prev.map(r => r.id === reportId ? clientValReport : r));
+        setLastSubmittedReport(clientValReport);
+        return { success: false, report: clientValReport };
+      }
+
       if (isExplicitChiefRejection(err)) {
-        // Only explicit Chief validation or policy rejection produces rejected_needs_correction
+        // Only explicit Chief validation or policy rejection produces rejected_needs_correction with chief origin
         const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
         const rejectedReport: WorkerReportItem = {
           ...syncingReport,
           status: 'rejected_needs_correction',
-          rejectionReason: errorMsg
+          errorOrigin: 'chief',
+          rejectionReason: `Rejected by Chief: ${errorMsg}`
         };
         setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
         setLastSubmittedReport(rejectedReport);
@@ -281,11 +316,25 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       ));
       return true;
     } catch (err: unknown) {
+      if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
+        setReports(prev => prev.map(r => 
+          r.id === id 
+            ? { 
+                ...r, 
+                status: 'rejected_needs_correction', 
+                errorOrigin: 'client', 
+                rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}` 
+              } 
+            : r
+        ));
+        return false;
+      }
+
       if (isExplicitChiefRejection(err)) {
         const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
         setReports(prev => prev.map(r => 
           r.id === id 
-            ? { ...r, status: 'rejected_needs_correction', rejectionReason: errorMsg } 
+            ? { ...r, status: 'rejected_needs_correction', errorOrigin: 'chief', rejectionReason: `Rejected by Chief: ${errorMsg}` } 
             : r
         ));
         return false;
@@ -342,12 +391,30 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         synced++;
       } catch (err: unknown) {
         failed++;
-        if (isExplicitChiefRejection(err)) {
+        if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
+          setReports(prev => prev.map(r => 
+            r.id === item.id 
+              ? { 
+                  ...r, 
+                  status: 'rejected_needs_correction', 
+                  errorOrigin: 'client', 
+                  syncAttempts: (r.syncAttempts || 0) + 1, 
+                  rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}` 
+                } 
+              : r
+          ));
+        } else if (isExplicitChiefRejection(err)) {
           // Explicit Chief rejection
           const errorMsg = err.message || 'Sync rejected by Chief';
           setReports(prev => prev.map(r => 
             r.id === item.id 
-              ? { ...r, status: 'rejected_needs_correction', syncAttempts: (r.syncAttempts || 0) + 1, rejectionReason: errorMsg } 
+              ? { 
+                  ...r, 
+                  status: 'rejected_needs_correction', 
+                  errorOrigin: 'chief', 
+                  syncAttempts: (r.syncAttempts || 0) + 1, 
+                  rejectionReason: `Rejected by Chief: ${errorMsg}` 
+                } 
               : r
           ));
         } else {

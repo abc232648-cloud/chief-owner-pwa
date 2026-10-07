@@ -160,7 +160,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
       type: 'image/jpeg',
       sizeBytes: 312000 + Math.floor(Math.random() * 50000),
       capturedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      watermarkText: `${mortalityHouse.slice(0, 7)} — ${user?.name || 'T. Rivera'} — ${new Date().toLocaleTimeString()} — FIELD-VERIFIED`
+      watermarkText: `${mortalityHouse.slice(0, 7)} — ${user?.name || 'Unauthenticated'} — ${new Date().toLocaleTimeString()} — FIELD-VERIFIED`
     };
     setAttachments(prev => [...prev, newAtt]);
   };
@@ -241,7 +241,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
           taskTitle: taskObj?.title || 'Farm Field Task',
           completionMinutes: taskMinutes,
           checklistConfirmed: taskChecklistConfirmed,
-          workerSignOff: user?.name || 'Tomas Rivera',
+          workerSignOff: user?.name || 'Unauthenticated Actor',
           outcomeNotes: taskNotes
         };
         summary = `Task Done: ${taskObj?.title || taskSelectedId} — ${taskMinutes} min — Signed by ${user?.name || 'Worker'}`;
@@ -293,7 +293,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
     }
   };
 
-  const renderStatusBadge = (status: WorkerReportStatus, isQueuedOffline?: boolean) => {
+  const renderStatusBadge = (status: WorkerReportStatus, isQueuedOffline?: boolean, errorOrigin?: 'client' | 'chief') => {
     switch (status) {
       case 'accepted_by_chief':
         return (
@@ -324,10 +324,18 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
           </span>
         );
       case 'rejected_needs_correction':
+        if (errorOrigin === 'client') {
+          return (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-950 text-amber-200 border border-amber-600 shadow-sm">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span>INPUT NEEDS CORRECTION (LOCAL)</span>
+            </span>
+          );
+        }
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-950 text-rose-200 border border-rose-600 shadow-sm">
             <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-            <span>REJECTED / NEEDS CORRECTION</span>
+            <span>REJECTED BY CHIEF</span>
           </span>
         );
     }
@@ -358,9 +366,9 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-emerald-400/80 font-mono mt-0.5 flex items-center gap-1.5">
-                <span>Worker: <strong>{user?.name || 'Tomas Rivera'}</strong></span>
+                <span>Worker: <strong>{user?.name || 'Unauthenticated'}</strong></span>
                 <span className="text-emerald-500/40">|</span>
-                <span>Role: {user?.role === 'worker' ? 'Field Specialist' : user?.role || 'Field Staff'}</span>
+                <span>Role: {user?.role === 'worker' ? 'Field Specialist' : user?.role || 'Unauthenticated'}</span>
               </p>
             </div>
           </div>
@@ -1084,10 +1092,15 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
 
               {/* Submit Action Row */}
               <div className="pt-2">
+                {(!user || !user.userId) && (
+                  <div className="mb-2 p-3 rounded-xl bg-rose-950/70 border border-rose-800 text-rose-200 text-xs font-mono text-center">
+                    Authenticated worker identity required.
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleSubmitForm}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !user || !user.userId}
                   className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-mono font-bold text-sm tracking-wide shadow-lg shadow-emerald-950/60 flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
                 >
                   {isSubmitting ? (
@@ -1103,7 +1116,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                   )}
                 </button>
                 <p className="text-center text-[10px] font-mono text-emerald-400/60 mt-1.5">
-                  Timestamped &amp; signed by {user?.name || 'Tomas Rivera'} • Authoritative Chief Pipeline
+                  Timestamped &amp; signed by {user?.name || 'Authenticated Actor'} • Authoritative Chief Pipeline
                 </p>
               </div>
 
@@ -1127,19 +1140,25 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                     </div>
                   )}
                   {submittedReport.status === 'rejected_needs_correction' && (
-                    <div className="w-12 h-12 rounded-2xl bg-rose-950 border-rose-500 text-rose-300 flex items-center justify-center">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                      submittedReport.errorOrigin === 'client'
+                        ? 'bg-amber-950 border-amber-500 text-amber-300'
+                        : 'bg-rose-950 border-rose-500 text-rose-300'
+                    }`}>
                       <AlertTriangle className="w-6 h-6" />
                     </div>
                   )}
                 </div>
                 <div className="space-y-1">
                   <div className="flex items-center justify-center gap-2">
-                    {renderStatusBadge(submittedReport.status, submittedReport.isQueuedOffline)}
+                    {renderStatusBadge(submittedReport.status, submittedReport.isQueuedOffline, submittedReport.errorOrigin)}
                   </div>
                   <h3 className="text-base font-bold text-white font-mono">
                     {submittedReport.status === 'accepted_by_chief' && 'Report Confirmed by Chief Engine'}
                     {submittedReport.status === 'queued' && 'Saved to Offline Queue'}
-                    {submittedReport.status === 'rejected_needs_correction' && 'Correction Required'}
+                    {submittedReport.status === 'rejected_needs_correction' && (
+                      submittedReport.errorOrigin === 'client' ? 'Input Needs Correction (Local)' : 'Rejected by Chief'
+                    )}
                   </h3>
                   <p className="text-xs text-emerald-300/80 font-mono">
                     Report ID: <strong>{submittedReport.reportNumber}</strong>
@@ -1152,6 +1171,8 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                 submittedReport.status === 'accepted_by_chief'
                   ? 'bg-[#03180e] border-emerald-900/80 text-emerald-200'
                   : submittedReport.status === 'queued'
+                  ? 'bg-[#191204] border-amber-900/80 text-amber-200'
+                  : submittedReport.errorOrigin === 'client'
                   ? 'bg-[#191204] border-amber-900/80 text-amber-200'
                   : 'bg-[#160609] border-rose-900/80 text-rose-200'
               }`}>
@@ -1196,14 +1217,31 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                 )}
 
                 {submittedReport.status === 'rejected_needs_correction' && (
-                  <>
-                    <p className="leading-relaxed">
-                      <strong>Policy Validation Error:</strong> {submittedReport.rejectionReason}
-                    </p>
-                    <p className="text-[11px] text-rose-300/80">
-                      Please adjust the field inputs to satisfy backend invariant rules.
-                    </p>
-                  </>
+                  submittedReport.errorOrigin === 'client' ? (
+                    <>
+                      <p className="leading-relaxed font-bold text-amber-300">
+                        Input needs correction
+                      </p>
+                      <p className="text-[11px] text-amber-200/90">
+                        Validated locally • No Chief decision has been made.
+                      </p>
+                      <p className="text-[11px] text-zinc-300">
+                        {submittedReport.rejectionReason}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="leading-relaxed font-bold text-rose-300">
+                        Rejected by Chief
+                      </p>
+                      <p className="text-[11px] text-rose-200/90">
+                        Chief Policy Engine rejection
+                      </p>
+                      <p className="text-[11px] text-zinc-300">
+                        {submittedReport.rejectionReason}
+                      </p>
+                    </>
+                  )
                 )}
               </div>
 
@@ -1296,7 +1334,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {renderStatusBadge(rep.status, rep.isQueuedOffline)}
+                          {renderStatusBadge(rep.status, rep.isQueuedOffline, rep.errorOrigin)}
                         </div>
                       </div>
 
@@ -1310,8 +1348,16 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                       )}
 
                       {rep.rejectionReason && (
-                        <div className="text-[11px] text-rose-300 font-mono bg-[#1b0508] p-1.5 rounded">
-                          Error: {rep.rejectionReason}
+                        <div className={`text-[11px] font-mono p-1.5 rounded ${
+                          rep.errorOrigin === 'client' 
+                            ? 'bg-[#1b1405] text-amber-300 border border-amber-900/50' 
+                            : 'bg-[#1b0508] text-rose-300 border border-rose-900/50'
+                        }`}>
+                          {rep.errorOrigin === 'client' ? (
+                            <span>Local validation: {rep.rejectionReason}</span>
+                          ) : (
+                            <span>Chief rejection: {rep.rejectionReason}</span>
+                          )}
                         </div>
                       )}
 

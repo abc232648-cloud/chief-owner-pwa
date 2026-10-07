@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthStatus, UserSession, UserRole, UserCapability, AuthError, UserCredentials } from '../types/auth';
 import { isChiefDevMode } from '../config/devMode';
+import { clearLiveCache, setCacheUserNamespace } from '../api/cache/readCache';
 
 export const PRESET_PERSONAS: Record<UserRole, UserSession> = {
   owner: {
@@ -158,6 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           authAuthority: 'DEV Simulation Persona — Not Real Chief Auth',
           isSimulated: true
         };
+        setCacheUserNamespace(selectedUser.userId);
         setUser(selectedUser);
         setStatus('authenticated');
         resolve(true);
@@ -167,6 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const reauthenticate = async (): Promise<boolean> => {
     if (!devMode) {
+      clearLiveCache();
+      setCacheUserNamespace(null);
       setStatus('unauthenticated');
       return false;
     }
@@ -175,6 +179,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    clearLiveCache();
+    setCacheUserNamespace(null);
     setUser(null);
     setStatus('unauthenticated');
     setError(null);
@@ -182,6 +188,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const expireSession = () => {
+    clearLiveCache();
+    setCacheUserNamespace(null);
     if (!devMode) return;
     setStatus('session_expired');
   };
@@ -210,6 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authAuthority: 'DEV Simulation Persona — Not Real Chief Auth',
       isSimulated: true
     };
+    setCacheUserNamespace(updated.userId);
     setUser(updated);
     setStatus('authenticated');
     setLastDeniedAction(null);

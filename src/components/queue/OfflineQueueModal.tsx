@@ -397,7 +397,7 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
                   </div>
                   <div>
                     <span className="text-emerald-400/60 block">Worker Attribution</span>
-                    <span className="text-white truncate block">{item.workerAttribution?.userName || 'Tomas Rivera'}</span>
+                    <span className="text-white truncate block">{item.workerAttribution?.userName || 'Authenticated Worker Required'}</span>
                   </div>
                 </div>
 

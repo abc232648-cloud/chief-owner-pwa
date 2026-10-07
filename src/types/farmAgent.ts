@@ -1,4 +1,4 @@
-export type FarmOperatingMode = 'LIVE' | 'SIMULATION' | 'OFFLINE' | 'NOT CONFIGURED' | 'STALE';
+export type FarmOperatingMode = 'LIVE' | 'CACHED' | 'UNAVAILABLE' | 'NOT CONFIGURED' | 'SIMULATION' | 'OFFLINE' | 'STALE';
 
 export type PoultryFlockType = 'layer' | 'broiler' | 'breeder';
 

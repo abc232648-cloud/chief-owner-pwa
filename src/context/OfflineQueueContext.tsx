@@ -9,6 +9,7 @@ import { useChief } from './ChiefContext';
 import { useAuth } from './AuthContext';
 import { chiefApi, ChiefApiError } from '../api';
 import { WorkerReportItem } from '../types/workerReport';
+import { isChiefDevMode } from '../config/devMode';
 
 const QUEUE_STORAGE_KEY = 'chief_offline_queue_v2';
 const MAX_BOUNDED_RETRIES = 3;
@@ -44,8 +45,10 @@ const OfflineQueueContext = createContext<OfflineQueueContextType | undefined>(u
 export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { state: chiefState } = useChief();
   const { user } = useAuth();
+  const isDev = isChiefDevMode();
 
   // Load initial queue
+  // BATCH 13B.3: Fresh production offline queue MUST be empty!
   const [queue, setQueue] = useState<QueueItem[]>(() => {
     try {
       const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
@@ -54,6 +57,9 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     } catch {
       // ignore
+    }
+    if (!isDev) {
+      return [];
     }
     return INITIAL_OFFLINE_QUEUE;
   });
@@ -123,6 +129,11 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Enqueue an action — CRITICAL SAFETY CHECK: NEVER QUEUE BLINDLY
   const enqueueAction = useCallback((options: EnqueueOptions): { success: boolean; item?: QueueItem; error?: string } => {
+    // BATCH 13B.3: Authenticated worker identity required. Never invent worker identity.
+    if (!user || !user.userId) {
+      return { success: false, error: 'Authenticated worker identity required.' };
+    }
+
     if (!options.isPolicyPermitted) {
       const errorMsg = options.blockReasonIfUnsafe || 
         'Live Authoritative Validation Required: This high-impact action cannot be queued offline. Active Chief Central Policy Engine verification is mandatory.';
@@ -145,11 +156,11 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       requiresUserIntervention: false,
       policyPermitted: true,
       payload: options.payload,
-      workerAttribution: user ? {
+      workerAttribution: {
         userId: user.userId,
         userName: user.name,
         role: user.role
-      } : undefined
+      }
     };
 
     setQueue(prev => [newItem, ...prev]);
@@ -209,13 +220,28 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return false;
     }
 
+    // BATCH 13B.3: Authenticated worker identity required. Never invent worker identity.
+    if (!item.workerAttribution || !item.workerAttribution.userId) {
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? {
+              ...q,
+              status: 'failed_permanent',
+              requiresUserIntervention: true,
+              lastFailure: 'Authenticated worker identity required. Offline record lacks authenticated actor attribution.'
+            }
+          : q
+      ));
+      return false;
+    }
+
     // Set status to syncing in-flight
     setQueue(prev => prev.map(q => 
       q.id === id ? { ...q, status: 'syncing' } : q
     ));
 
     try {
-      // Construct real payload and call real endpoint
+      // Construct real payload with genuine authenticated worker attribution
       const reportPayload: WorkerReportItem = {
         id: item.id,
         reportNumber: `RPT-SYNC-${item.id.slice(-4)}`,
@@ -223,9 +249,9 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
         status: 'syncing',
         createdAt: item.createdAt,
         timestampFormatted: item.timestampFormatted,
-        workerId: item.workerAttribution?.userId || 'usr-wrk-03',
-        workerName: item.workerAttribution?.userName || 'Tomas Rivera',
-        workerRole: item.workerAttribution?.role || 'Field Worker',
+        workerId: item.workerAttribution.userId,
+        workerName: item.workerAttribution.userName,
+        workerRole: item.workerAttribution.role,
         categoryLabel: item.title,
         summary: item.title,
         data: item.payload,
@@ -234,6 +260,24 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       };
 
       const res = await chiefApi.farm.submitWorkerReport(reportPayload);
+
+      // BATCH 13B.3 Requirement 8: Offline replay requires positive backend acceptance
+      // Require status === 'accepted' AND valid backend verification/receipt identifier.
+      // An ambiguous or malformed response must NOT become synced.
+      if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
+        setQueue(prev => prev.map(q => 
+          q.id === id 
+            ? {
+                ...q,
+                status: 'failed_transient',
+                retryCount: q.retryCount + 1,
+                requiresUserIntervention: false,
+                lastFailure: 'Ambiguous or unconfirmed backend response: Positive acceptance proof missing'
+              }
+            : q
+        ));
+        return false;
+      }
 
       // Genuine confirmation received from backend
       setQueue(prev => prev.map(q => 
@@ -253,12 +297,34 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return true;
     } catch (err: unknown) {
       const errMsg = err instanceof ChiefApiError ? err.message : 'Uplink transmission failed';
-      // Genuine authoritative backend rejection: only explicit 422 or policy validation error
-      const isAuthoritativeRejection = err instanceof ChiefApiError && (
-        err.statusCode === 422 || 
-        err.code === 'POLICY_REJECTION' || 
-        err.code === 'VALIDATION_ERROR'
+
+      // Client validation is NOT a Chief rejection
+      const isClientValidationError = err instanceof ChiefApiError && (
+        err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR'
       );
+
+      if (isClientValidationError) {
+        setQueue(prev => prev.map(q => 
+          q.id === id 
+            ? {
+                ...q,
+                status: 'failed_permanent',
+                retryCount: q.retryCount + 1,
+                requiresUserIntervention: true,
+                lastFailure: `Input needs correction — Validated locally. No Chief decision has been made: ${errMsg}`
+              }
+            : q
+        ));
+        return false;
+      }
+
+      // Genuine authoritative backend rejection: only explicit 422 or policy validation error from Chief backend
+      const isAuthoritativeRejection = err instanceof ChiefApiError && 
+        err.origin !== 'client' && (
+          err.statusCode === 422 || 
+          err.code === 'POLICY_REJECTION' || 
+          err.code === 'VALIDATION_ERROR'
+        );
 
       setQueue(prev => prev.map(q => 
         q.id === id 
@@ -269,7 +335,7 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 : (q.retryCount + 1 >= q.maxRetries ? 'failed_permanent' : 'failed_transient'),
               retryCount: q.retryCount + 1,
               requiresUserIntervention: isAuthoritativeRejection || q.retryCount + 1 >= q.maxRetries,
-              lastFailure: errMsg
+              lastFailure: isAuthoritativeRejection ? `Rejected by Chief: ${errMsg}` : errMsg
             }
           : q
       ));

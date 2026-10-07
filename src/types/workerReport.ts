@@ -142,6 +142,7 @@ export interface WorkerReportItem {
   backendConfirmationHash?: string;
   backendConfirmedAt?: string;
   rejectionReason?: string;
+  errorOrigin?: 'client' | 'chief';
   isQueuedOffline?: boolean;
   syncAttempts?: number;
 }

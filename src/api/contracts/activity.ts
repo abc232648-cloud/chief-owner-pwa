@@ -28,7 +28,12 @@ export class ActivityApiAdapter implements IActivityContract {
         provenance: 'live'
       };
     } catch (err) {
-      // 1. DEV mode allows isolated development mocks
+      // 1. Auth failures (401, 403) must NEVER serve previous-session cache (fail closed)
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) {
+        throw err;
+      }
+
+      // 2. DEV mode allows isolated development mocks
       if (isChiefDevMode()) {
         let results = [...ISOLATED_ACTIVITY_MOCK];
         if (filter?.agent && filter.agent !== 'All') {

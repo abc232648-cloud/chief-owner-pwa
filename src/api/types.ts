@@ -49,6 +49,7 @@ export class ChiefApiError extends Error {
   public readonly isNetworkError: boolean;
   public readonly isTimeout: boolean;
   public readonly isAborted: boolean;
+  public readonly origin?: 'client' | 'chief';
   public readonly details?: unknown;
 
   constructor(params: {
@@ -59,6 +60,7 @@ export class ChiefApiError extends Error {
     isNetworkError?: boolean;
     isTimeout?: boolean;
     isAborted?: boolean;
+    origin?: 'client' | 'chief';
     details?: unknown;
   }) {
     super(params.message);
@@ -69,6 +71,7 @@ export class ChiefApiError extends Error {
     this.isNetworkError = Boolean(params.isNetworkError);
     this.isTimeout = Boolean(params.isTimeout);
     this.isAborted = Boolean(params.isAborted);
+    this.origin = params.origin;
     this.details = params.details;
   }
 }

@@ -28,7 +28,12 @@ export class SystemApiAdapter implements ISystemContract {
         provenance: 'live'
       };
     } catch (err) {
-      // 1. DEV mode allows isolated development mocks clearly tagged
+      // 1. Auth failures (401, 403) must NEVER serve previous-session cache (fail closed)
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) {
+        throw err;
+      }
+
+      // 2. DEV mode allows isolated development mocks clearly tagged
       if (isChiefDevMode()) {
         return wrapIsolatedMock(ISOLATED_SYSTEM_MOCK, '/system/status');
       }

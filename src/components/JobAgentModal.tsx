@@ -13,6 +13,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { AgentState } from '../types/chief';
+import { useAuth } from '../context/AuthContext';
 import { 
   APPLICANT_TRUTH_STORE, 
   JOB_OVERVIEW_METRICS, 
@@ -41,12 +42,19 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
   onClose,
   onNavigateToApprovals
 }) => {
+  const { isDevMode } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [oppFilter, setOppFilter] = useState<'all' | 'apply' | 'ask' | 'stop' | 'reject'>('all');
 
   if (!isOpen) return null;
 
-  const filteredOpportunities = JOB_OPPORTUNITIES.filter(opp => {
+  // BATCH 13B.3: Synthetic opportunities & fixtures strictly isolated to DEV mode
+  const opportunities = isDevMode ? JOB_OPPORTUNITIES : [];
+  const applications = isDevMode ? JOB_APPLICATIONS : [];
+  const decisions = isDevMode ? JOB_DECISION_RECORDS : [];
+  const failures = isDevMode ? JOB_FAILURES : [];
+
+  const filteredOpportunities = opportunities.filter(opp => {
     if (oppFilter === 'apply') return opp.decision === 'APPLY';
     if (oppFilter === 'ask') return opp.decision === 'ASK';
     if (oppFilter === 'stop') return opp.decision === 'STOP';
@@ -196,10 +204,10 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
         <div className="px-6 py-2 border-b border-emerald-950/80 bg-[#03140c] flex items-center gap-1 text-xs overflow-x-auto no-scrollbar font-mono">
           {[
             { id: 'overview', label: 'Overview' },
-            { id: 'opportunities', label: `Opportunities (${JOB_OPPORTUNITIES.length})` },
-            { id: 'applications', label: `Applications (${JOB_APPLICATIONS.length})` },
-            { id: 'decisions', label: `Decisions (${JOB_DECISION_RECORDS.length})` },
-            { id: 'failures', label: `Failures (${JOB_FAILURES.length})` },
+            { id: 'opportunities', label: `Opportunities (${opportunities.length})` },
+            { id: 'applications', label: `Applications (${applications.length})` },
+            { id: 'decisions', label: `Decisions (${decisions.length})` },
+            { id: 'failures', label: `Failures (${failures.length})` },
             { id: 'history', label: 'History' }
           ].map(tab => (
             <button
@@ -216,6 +224,14 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
           ))}
         </div>
 
+        {/* DEV Warning Banner */}
+        {isDevMode && (
+          <div className="px-6 py-2 bg-amber-500/10 border-b border-amber-600/40 text-amber-300 text-xs font-mono flex items-center justify-between">
+            <span className="font-bold uppercase tracking-wider">[DEV SIMULATION] SYNTHETIC JOB AGENT FIXTURES</span>
+            <span className="text-[10px] text-amber-400/80">Fixtures are for development only — not authoritative user data</span>
+          </div>
+        )}
+
         {/* Content Body */}
         <div className="p-6 overflow-y-auto max-h-[68vh] space-y-6">
           
@@ -227,105 +243,140 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                   Authoritative Pipeline Telemetry
                 </h3>
                 <p className="text-xs text-emerald-300/60 mt-0.5">
-                  Metrics strictly sourced from backend Job Agent engine without fabrication
+                  {isDevMode 
+                    ? 'Development metrics (synthetic sample data)' 
+                    : 'Backend data unavailable. Production does not present synthetic metrics as operational truth.'}
                 </p>
               </div>
 
               {/* 7 Required Overview Metrics */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                  <span className="text-[11px] font-mono text-emerald-400/60 block">Opportunities Scanned</span>
-                  <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.opportunitiesScanned}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                  <span className="text-[11px] font-mono text-emerald-400/60 block">Qualified</span>
-                  <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.qualified}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                  <span className="text-[11px] font-mono text-emerald-400/60 block">Strong Matches</span>
-                  <span className="text-xl font-bold font-mono text-emerald-300 tabular-nums">{JOB_OVERVIEW_METRICS.strongMatches}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                  <span className="text-[11px] font-mono text-emerald-400/60 block">Applications Started</span>
-                  <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.applicationsStarted}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
-                  <span className="text-[11px] font-mono text-emerald-400/60 block">Submitted (Verified)</span>
-                  <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums">{JOB_OVERVIEW_METRICS.submitted}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-rose-950/80 bg-[#160609] space-y-1">
-                  <span className="text-[11px] font-mono text-rose-400/70 block">Blocked by Policy</span>
-                  <span className="text-xl font-bold font-mono text-rose-300 tabular-nums">{JOB_OVERVIEW_METRICS.blocked}</span>
-                </div>
-                <div className="p-3.5 rounded-xl border border-amber-950/80 bg-[#161006] space-y-1 sm:col-span-2">
-                  <span className="text-[11px] font-mono text-amber-400/70 block">Approval Requests Queued</span>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xl font-bold font-mono text-amber-300 tabular-nums">{JOB_OVERVIEW_METRICS.approvalRequests}</span>
-                    <button
-                      onClick={() => {
-                        onClose();
-                        onNavigateToApprovals();
-                      }}
-                      className="px-2.5 py-1 rounded text-xs font-mono font-semibold bg-amber-950 text-amber-200 border border-amber-700 hover:bg-amber-900 transition-colors"
-                    >
-                      Review in Inbox →
-                    </button>
+              {isDevMode ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
+                    <span className="text-[11px] font-mono text-emerald-400/60 block">Opportunities Scanned</span>
+                    <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.opportunitiesScanned}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
+                    <span className="text-[11px] font-mono text-emerald-400/60 block">Qualified</span>
+                    <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.qualified}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
+                    <span className="text-[11px] font-mono text-emerald-400/60 block">Strong Matches</span>
+                    <span className="text-xl font-bold font-mono text-emerald-300 tabular-nums">{JOB_OVERVIEW_METRICS.strongMatches}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
+                    <span className="text-[11px] font-mono text-emerald-400/60 block">Applications Started</span>
+                    <span className="text-xl font-bold font-mono text-white tabular-nums">{JOB_OVERVIEW_METRICS.applicationsStarted}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1">
+                    <span className="text-[11px] font-mono text-emerald-400/60 block">Submitted (Verified)</span>
+                    <span className="text-xl font-bold font-mono text-emerald-400 tabular-nums">{JOB_OVERVIEW_METRICS.submitted}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-rose-950/80 bg-[#160609] space-y-1">
+                    <span className="text-[11px] font-mono text-rose-400/70 block">Blocked by Policy</span>
+                    <span className="text-xl font-bold font-mono text-rose-300 tabular-nums">{JOB_OVERVIEW_METRICS.blocked}</span>
+                  </div>
+                  <div className="p-3.5 rounded-xl border border-amber-950/80 bg-[#161006] space-y-1 sm:col-span-2">
+                    <span className="text-[11px] font-mono text-amber-400/70 block">Approval Requests Queued</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xl font-bold font-mono text-amber-300 tabular-nums">{JOB_OVERVIEW_METRICS.approvalRequests}</span>
+                      <button
+                        onClick={() => {
+                          onClose();
+                          onNavigateToApprovals();
+                        }}
+                        className="px-2.5 py-1 rounded text-xs font-mono font-semibold bg-amber-950 text-amber-200 border border-amber-700 hover:bg-amber-900 transition-colors"
+                      >
+                        Review in Inbox →
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-1.5 text-xs font-mono">
+                  <span className="text-emerald-400/80 uppercase font-bold block">Job Agent Backend Not Connected</span>
+                  <p className="text-emerald-300/60">
+                    No authoritative pipeline telemetry available. Production does not fabricate operational metrics.
+                  </p>
+                </div>
+              )}
 
               {/* CANDIDATE TRUTH STORE CARD */}
-              <div className="p-5 rounded-xl border border-emerald-900/60 bg-[#052114] space-y-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                      <h4 className="text-sm font-semibold text-white tracking-tight">
-                        Applicant Truth Store — Immutable Candidate Baseline
-                      </h4>
+              {isDevMode ? (
+                <div className="p-5 rounded-xl border border-amber-800/60 bg-[#140d04] space-y-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-amber-400" />
+                        <h4 className="text-sm font-semibold text-white tracking-tight font-mono">
+                          DEVELOPMENT SAMPLE PROFILE — NOT USER DATA
+                        </h4>
+                      </div>
+                      <p className="text-xs text-amber-200/70 mt-0.5 font-mono">
+                        Sample simulation fixture only — Not the authoritative Applicant Truth Store.
+                      </p>
                     </div>
-                    <p className="text-xs text-emerald-300/70 mt-0.5">
-                      Chief Safety Invariant: The UI and Job Agent must NEVER claim qualifications unapproved by Truth Store
-                    </p>
-                  </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-mono font-bold shrink-0">
-                    SEALED AUDIT
-                  </span>
-                </div>
-
-                {/* Verified Profile */}
-                <div className="p-3.5 rounded-lg bg-[#03140c] border border-emerald-950 space-y-2 text-xs font-mono">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-emerald-200">
-                    <span><strong>Verified Title:</strong> {APPLICANT_TRUTH_STORE.title}</span>
-                    <span className="text-emerald-400/70">{APPLICANT_TRUTH_STORE.verifiedSeniority}</span>
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-emerald-400/60 uppercase block mb-1 font-semibold">
-                      Authoritatively Verified Core Capabilities:
+                    <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 text-[10px] font-mono font-bold shrink-0">
+                      DEV SAMPLE
                     </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {APPLICANT_TRUTH_STORE.verifiedSkills.map((skill, idx) => (
-                        <span key={idx} className="px-2 py-0.5 rounded bg-[#062416] border border-emerald-900/60 text-emerald-300 text-[11px]">
-                          ✓ {skill}
-                        </span>
-                      ))}
+                  </div>
+
+                  {/* Verified Profile */}
+                  <div className="p-3.5 rounded-lg bg-[#03140c] border border-amber-950 space-y-2 text-xs font-mono">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-amber-200">
+                      <span><strong>Sample Title:</strong> {APPLICANT_TRUTH_STORE.title}</span>
+                      <span className="text-amber-400/70">{APPLICANT_TRUTH_STORE.verifiedSeniority}</span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-amber-400/60 uppercase block mb-1 font-semibold">
+                        Sample Verified Skills (Fixture Only):
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {APPLICANT_TRUTH_STORE.verifiedSkills.map((skill, idx) => (
+                          <span key={idx} className="px-2 py-0.5 rounded bg-[#062416] border border-amber-900/60 text-amber-300 text-[11px]">
+                            ✓ {skill}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Explicit Prohibitions Banner */}
-                <div className="p-3.5 rounded-lg bg-rose-950/20 border border-rose-900/50 space-y-1.5 text-xs">
-                  <span className="font-mono text-[11px] text-rose-300 font-bold uppercase tracking-wider block flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-rose-400" />
-                    Prohibited Unverified Claims (Strictly Barred from Fabrication):
-                  </span>
-                  <ul className="space-y-1 text-rose-200/80 font-mono text-[11px] pl-4 list-disc">
-                    {APPLICANT_TRUTH_STORE.unverifiedProhibitions.map((item, idx) => (
-                      <li key={idx}>{item}</li>
-                    ))}
-                  </ul>
+                  {/* Explicit Prohibitions Banner */}
+                  <div className="p-3.5 rounded-lg bg-rose-950/20 border border-rose-900/50 space-y-1.5 text-xs">
+                    <span className="font-mono text-[11px] text-rose-300 font-bold uppercase tracking-wider block flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-rose-400" />
+                      Prohibited Claims (Sample Rules):
+                    </span>
+                    <ul className="space-y-1 text-rose-200/80 font-mono text-[11px] pl-4 list-disc">
+                      {APPLICANT_TRUTH_STORE.unverifiedProhibitions.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-5 rounded-xl border border-rose-900/60 bg-[#140608] space-y-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-5 h-5 text-rose-400" />
+                        <h4 className="text-sm font-semibold text-white tracking-tight font-mono">
+                          Applicant Truth Store not connected
+                        </h4>
+                      </div>
+                      <p className="text-xs text-rose-200/90 font-mono mt-1 font-semibold">
+                        No authoritative candidate profile available.
+                      </p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 text-[10px] font-mono font-bold shrink-0">
+                      UNCONNECTED
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
+                    Under Chief Safety Invariants, candidate qualifications, seniority, and production architectural history must originate only from an authoritative Chief backend connection. Frontend synthesis and assumption-based profile construction are strictly prohibited.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -353,88 +404,99 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
               </div>
 
               <div className="space-y-4">
-                {filteredOpportunities.map(opp => (
-                  <div 
-                    key={opp.id}
-                    className="p-5 rounded-xl border border-emerald-950/80 bg-[#041a10] hover:border-emerald-800/60 transition-colors space-y-3.5"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                      <div>
+                {filteredOpportunities.length === 0 ? (
+                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
+                    <p className="text-sm font-bold text-white">No authoritative job opportunities available.</p>
+                    <p className="text-xs">
+                      {isDevMode 
+                        ? 'No opportunities match the selected filter.' 
+                        : 'Job Agent backend data is not connected. Synthetic opportunities are disabled in production.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredOpportunities.map(opp => (
+                    <div 
+                      key={opp.id}
+                      className="p-5 rounded-xl border border-emerald-950/80 bg-[#041a10] hover:border-emerald-800/60 transition-colors space-y-3.5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-white tracking-tight">
+                              {opp.role}
+                            </h4>
+                            <span className="text-xs font-mono text-emerald-300/70">
+                              @ {opp.employer}
+                            </span>
+                          </div>
+                          <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
+                            {opp.location} • {opp.remoteInfo} • Source: {opp.source}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {renderDecisionBadge(opp.decision)}
+                          <div className="px-2.5 py-0.5 rounded font-mono text-xs font-bold bg-[#03140c] border border-emerald-950 text-emerald-400">
+                            {opp.opportunityScore}% Match
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 text-xs font-mono">
+                        <span className="text-emerald-200">
+                          <strong>Compensation:</strong> {opp.compensation || 'Unspecified in posting'}
+                        </span>
                         <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-white tracking-tight">
-                            {opp.role}
-                          </h4>
-                          <span className="text-xs font-mono text-emerald-300/70">
-                            @ {opp.employer}
+                          {renderScamBadge(opp.scamRisk)}
+                          <span className="text-[11px] text-emerald-400/60">
+                            {opp.verificationState.verificationLabel}
                           </span>
                         </div>
-                        <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
-                          {opp.location} • {opp.remoteInfo} • Source: {opp.source}
-                        </p>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {renderDecisionBadge(opp.decision)}
-                        <div className="px-2.5 py-0.5 rounded font-mono text-xs font-bold bg-[#03140c] border border-emerald-950 text-emerald-400">
-                          {opp.opportunityScore}% Match
+                      <div className="text-xs text-emerald-200/90 leading-relaxed font-sans">
+                        <strong>Chief Decision Rationale:</strong> {opp.decisionReason}
+                      </div>
+
+                      {opp.strongestMatches.length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-semibold block">
+                            Verified Strongest Matches (Applicant Truth Store):
+                          </span>
+                          <div className="flex flex-wrap gap-1 font-mono text-[11px]">
+                            {opp.strongestMatches.map((m, idx) => (
+                              <span key={idx} className="px-2 py-0.5 rounded bg-[#062416] border border-emerald-800/60 text-emerald-300">
+                                ✓ {m}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      )}
 
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-[#03140c] border border-emerald-950 text-xs font-mono">
-                      <span className="text-emerald-200">
-                        <strong>Compensation:</strong> {opp.compensation || 'Unspecified in posting'}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {renderScamBadge(opp.scamRisk)}
-                        <span className="text-[11px] text-emerald-400/60">
-                          {opp.verificationState.verificationLabel}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-xs text-emerald-200/90 leading-relaxed font-sans">
-                      <strong>Chief Decision Rationale:</strong> {opp.decisionReason}
-                    </div>
-
-                    {opp.strongestMatches.length > 0 && (
-                      <div className="space-y-1 text-xs">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-semibold block">
-                          Verified Strongest Matches (Applicant Truth Store):
-                        </span>
-                        <div className="flex flex-wrap gap-1 font-mono text-[11px]">
-                          {opp.strongestMatches.map((m, idx) => (
-                            <span key={idx} className="px-2 py-0.5 rounded bg-[#062416] border border-emerald-800/60 text-emerald-300">
-                              ✓ {m}
-                            </span>
-                          ))}
+                      {opp.gaps.length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-semibold block">
+                            Truthful Discrepancies &amp; Gaps:
+                          </span>
+                          <ul className="list-disc pl-4 text-emerald-300/70 text-[11px] font-mono space-y-0.5">
+                            {opp.gaps.map((g, idx) => (
+                              <li key={idx}>{g}</li>
+                            ))}
+                          </ul>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {opp.gaps.length > 0 && (
-                      <div className="space-y-1 text-xs">
-                        <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 font-semibold block">
-                          Truthful Discrepancies &amp; Gaps:
-                        </span>
-                        <ul className="list-disc pl-4 text-emerald-300/70 text-[11px] font-mono space-y-0.5">
-                          {opp.gaps.map((g, idx) => (
-                            <li key={idx}>{g}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {opp.scamRisk !== 'verified_legitimate' && (
-                      <div className="p-3 rounded-lg bg-rose-950/30 border border-rose-900/60 text-xs text-rose-300 space-y-0.5">
-                        <span className="font-mono text-[11px] font-bold uppercase tracking-wider block">
-                          Scam Risk Analysis Note:
-                        </span>
-                        <p>{opp.scamRiskNotes}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {opp.scamRisk !== 'verified_legitimate' && (
+                        <div className="p-3 rounded-lg bg-rose-950/30 border border-rose-900/60 text-xs text-rose-300 space-y-0.5">
+                          <span className="font-mono text-[11px] font-bold uppercase tracking-wider block">
+                            Scam Risk Analysis Note:
+                          </span>
+                          <p>{opp.scamRiskNotes}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -444,62 +506,73 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="text-emerald-400/60 uppercase tracking-wider">
-                  Candidate Application Lifecycles ({JOB_APPLICATIONS.length})
+                  Candidate Application Lifecycles ({applications.length})
                 </span>
                 <span className="text-emerald-400/50 text-[11px]">
                   States: discovered → evaluated → approved → preparing → submitted → receipt captured
                 </span>
               </div>
               <div className="space-y-4">
-                {JOB_APPLICATIONS.map(app => (
-                  <div 
-                    key={app.id}
-                    className="p-5 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-3"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                      <div>
-                        <h4 className="text-sm font-bold text-white tracking-tight">
-                          {app.role}
-                        </h4>
-                        <p className="text-xs text-emerald-300/70 font-mono mt-0.5">
-                          {app.employer} • Started: {app.startedAt}
-                        </p>
-                      </div>
-                      <div className="shrink-0">
-                        {renderLifecycleBadge(app.lifecycleState)}
-                      </div>
-                    </div>
-                    <p className="text-xs text-emerald-200/90 leading-relaxed font-sans">
-                      {app.stateExplanation}
+                {applications.length === 0 ? (
+                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
+                    <p className="text-sm font-bold text-white">No authoritative applications or submissions available.</p>
+                    <p className="text-xs">
+                      {isDevMode 
+                        ? 'No applications in pipeline.' 
+                        : 'No applications have been submitted. Synthetic history and receipts are disabled in production.'}
                     </p>
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-950/80 text-[11px] font-mono text-emerald-400/60">
-                      <span>Transport: {app.submissionMedium}</span>
-                      {app.packageHash && <span>Hash: {app.packageHash}</span>}
-                      {app.receiptId && (
-                        <span className="text-emerald-300 font-bold">
-                          Receipt: {app.receiptId}
-                        </span>
+                  </div>
+                ) : (
+                  applications.map(app => (
+                    <div 
+                      key={app.id}
+                      className="p-5 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-white tracking-tight">
+                            {app.role}
+                          </h4>
+                          <p className="text-xs text-emerald-300/70 font-mono mt-0.5">
+                            {app.employer} • Started: {app.startedAt}
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          {renderLifecycleBadge(app.lifecycleState)}
+                        </div>
+                      </div>
+                      <p className="text-xs text-emerald-200/90 leading-relaxed font-sans">
+                        {app.stateExplanation}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-950/80 text-[11px] font-mono text-emerald-400/60">
+                        <span>Transport: {app.submissionMedium}</span>
+                        {app.packageHash && <span>Hash: {app.packageHash}</span>}
+                        {app.receiptId && (
+                          <span className="text-emerald-300 font-bold">
+                            Receipt: {app.receiptId}
+                          </span>
+                        )}
+                      </div>
+                      {app.requiresAttention && (
+                        <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800 text-xs text-amber-200 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>{app.attentionReason}</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              onClose();
+                              onNavigateToApprovals();
+                            }}
+                            className="px-3 py-1 rounded bg-amber-900/80 text-white font-mono text-xs font-semibold hover:bg-amber-800 transition-colors"
+                          >
+                            View in Inbox
+                          </button>
+                        </div>
                       )}
                     </div>
-                    {app.requiresAttention && (
-                      <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800 text-xs text-amber-200 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                          <span>{app.attentionReason}</span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            onClose();
-                            onNavigateToApprovals();
-                          }}
-                          className="px-3 py-1 rounded bg-amber-900/80 text-white font-mono text-xs font-semibold hover:bg-amber-800 transition-colors"
-                        >
-                          View in Inbox
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -516,30 +589,41 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                 </p>
               </div>
               <div className="space-y-3">
-                {JOB_DECISION_RECORDS.map(dec => (
-                  <div 
-                    key={dec.id}
-                    className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <span className="text-sm font-bold text-white block">{dec.role}</span>
-                        <span className="text-xs text-emerald-300/60 font-mono">{dec.employer}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {renderDecisionBadge(dec.decision)}
-                        <span className="text-xs font-mono text-emerald-400 font-bold">{dec.matchScore}%</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-emerald-200/90 leading-relaxed font-sans">
-                      {dec.authoritativeReason}
+                {decisions.length === 0 ? (
+                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
+                    <p className="text-sm font-bold text-white">No authoritative decision records available.</p>
+                    <p className="text-xs">
+                      {isDevMode 
+                        ? 'No decision records logged.' 
+                        : 'Synthetic decision records are disabled in production.'}
                     </p>
-                    <div className="flex items-center justify-between pt-1 text-[11px] font-mono text-emerald-400/60">
-                      <span>Policy Rule: <strong>{dec.policyRule}</strong></span>
-                      <span>Decided: {dec.decidedAt}</span>
-                    </div>
                   </div>
-                ))}
+                ) : (
+                  decisions.map(dec => (
+                    <div 
+                      key={dec.id}
+                      className="p-4 rounded-xl border border-emerald-950/80 bg-[#041a10] space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span className="text-sm font-bold text-white block">{dec.role}</span>
+                          <span className="text-xs text-emerald-300/60 font-mono">{dec.employer}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {renderDecisionBadge(dec.decision)}
+                          <span className="text-xs font-mono text-emerald-400 font-bold">{dec.matchScore}%</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-emerald-200/90 leading-relaxed font-sans">
+                        {dec.authoritativeReason}
+                      </p>
+                      <div className="flex items-center justify-between pt-1 text-[11px] font-mono text-emerald-400/60">
+                        <span>Policy Rule: <strong>{dec.policyRule}</strong></span>
+                        <span>Decided: {dec.decidedAt}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -556,30 +640,39 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                 </p>
               </div>
               <div className="space-y-3">
-                {JOB_FAILURES.map(fail => (
-                  <div 
-                    key={fail.id}
-                    className="p-4 rounded-xl border border-rose-950/80 bg-[#160609] space-y-2 text-xs"
-                  >
-                    <div className="flex items-center justify-between gap-2 font-mono">
-                      <span className="font-bold text-rose-300 flex items-center gap-1.5">
-                        <AlertOctagon className="w-4 h-4 text-rose-400" />
-                        <span>{fail.title}</span>
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-200 border border-rose-800 text-[10px] font-bold">
-                        {fail.category}
-                      </span>
-                    </div>
-                    <p className="text-rose-100/90 leading-relaxed font-sans">
-                      {fail.details}
+                {failures.length === 0 ? (
+                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
+                    <p className="text-sm font-bold text-white">No subsystem failure events recorded.</p>
+                    <p className="text-xs text-emerald-400/50">
+                      Pipeline is operating nominally or disconnected from telemetry.
                     </p>
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-rose-950 text-[11px] font-mono text-rose-300/70">
-                      <span>Entity: {fail.relatedEntity}</span>
-                      <span>State: <strong>{fail.retryState}</strong></span>
-                      <span>Error: {fail.errorSignature}</span>
-                    </div>
                   </div>
-                ))}
+                ) : (
+                  failures.map(fail => (
+                    <div 
+                      key={fail.id}
+                      className="p-4 rounded-xl border border-rose-950/80 bg-[#160609] space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2 font-mono">
+                        <span className="font-bold text-rose-300 flex items-center gap-1.5">
+                          <AlertOctagon className="w-4 h-4 text-rose-400" />
+                          <span>{fail.title}</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-200 border border-rose-800 text-[10px] font-bold">
+                          {fail.category}
+                        </span>
+                      </div>
+                      <p className="text-rose-100/90 leading-relaxed font-sans">
+                        {fail.details}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-rose-950 text-[11px] font-mono text-rose-300/70">
+                        <span>Entity: {fail.relatedEntity}</span>
+                        <span>State: <strong>{fail.retryState}</strong></span>
+                        <span>Error: {fail.errorSignature}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -596,28 +689,37 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                 </p>
               </div>
               <div className="space-y-2.5">
-                {[
-                  { time: "07:31 AM", event: "Completed career index scan: 18 opportunities evaluated against Truth Store", code: "SCAN_NOMINAL" },
-                  { time: "07:25 AM", event: "Compensation threshold rule triggered on Nexus Grid role; ASK gate flagged", code: "ASK_GATE_SET" },
-                  { time: "07:20 AM", event: "Crypto Genesis Global Network domain blocked by Scam Risk Guard", code: "STOP_SCAM_BLOCKED" },
-                  { time: "07:15 AM", event: "CyberDefense SOC architect role rejected: Truth Store lacks certified SOC credentials", code: "REJECT_TRUTH_GAP" },
-                  { time: "07:10 AM", event: "Candidate cover letter tailored for Vanguard Tech Senior Staff Platform Engineer", code: "DRAFT_PREPARED" },
-                  { time: "06:55 AM", event: "Aurora Systems application package completed; waiting on operator ASK approval", code: "ASK_DISPATCH_HOLD" },
-                  { time: "05:50 AM", event: "Remote Greenhouse ATS rate limit (HTTP 429) backoff delay engaged (+300s)", code: "RETRY_RATE_LIMIT" }
-                ].map((item, idx) => (
-                  <div 
-                    key={idx}
-                    className="p-3 rounded-lg border border-emerald-950/80 bg-[#03140c] flex items-center justify-between gap-3 text-xs font-mono"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-emerald-400 font-bold">{item.time}</span>
-                      <span className="text-emerald-100">{item.event}</span>
-                    </div>
-                    <span className="text-[10px] text-emerald-400/50 px-1.5 py-0.5 rounded bg-[#062416] border border-emerald-950 shrink-0">
-                      {item.code}
-                    </span>
+                {!isDevMode ? (
+                  <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">
+                    <p className="text-sm font-bold text-white">No authoritative pipeline chronology available.</p>
+                    <p className="text-xs text-emerald-400/50">
+                      Synthetic event history is disabled in production.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  [
+                    { time: "07:31 AM", event: "Completed career index scan: 18 opportunities evaluated against Truth Store", code: "SCAN_NOMINAL" },
+                    { time: "07:25 AM", event: "Compensation threshold rule triggered on Nexus Grid role; ASK gate flagged", code: "ASK_GATE_SET" },
+                    { time: "07:20 AM", event: "Crypto Genesis Global Network domain blocked by Scam Risk Guard", code: "STOP_SCAM_BLOCKED" },
+                    { time: "07:15 AM", event: "CyberDefense SOC architect role rejected: Truth Store lacks certified SOC credentials", code: "REJECT_TRUTH_GAP" },
+                    { time: "07:10 AM", event: "Candidate cover letter tailored for Vanguard Tech Senior Staff Platform Engineer", code: "DRAFT_PREPARED" },
+                    { time: "06:55 AM", event: "Aurora Systems application package completed; waiting on operator ASK approval", code: "ASK_DISPATCH_HOLD" },
+                    { time: "05:50 AM", event: "Remote Greenhouse ATS rate limit (HTTP 429) backoff delay engaged (+300s)", code: "RETRY_RATE_LIMIT" }
+                  ].map((item, idx) => (
+                    <div 
+                      key={idx}
+                      className="p-3 rounded-lg border border-emerald-950/80 bg-[#03140c] flex items-center justify-between gap-3 text-xs font-mono"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-emerald-400 font-bold">{item.time}</span>
+                        <span className="text-emerald-100">{item.event}</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-400/50 px-1.5 py-0.5 rounded bg-[#062416] border border-emerald-950 shrink-0">
+                        {item.code}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
