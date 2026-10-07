@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Share, PlusSquare, X, RefreshCw } from 'lucide-react';
+import { Download, Share, PlusSquare, X, RefreshCw, AlertTriangle } from 'lucide-react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { subscribeToUpdates, applyUpdateSafely } from '../../serviceWorkerRegistration';
+import { operationalWorkTracker } from '../../storage/operationalWorkTracker';
 
 const DISMISS_KEY = 'chief_pref_pwa_banner_dismissed';
 
@@ -16,6 +17,7 @@ export const PWAInstallBanner: React.FC = () => {
     }
   });
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [updateBlockedNotice, setUpdateBlockedNotice] = useState<string | null>(null);
 
   useEffect(() => {
     return subscribeToUpdates((available) => {
@@ -32,29 +34,52 @@ export const PWAInstallBanner: React.FC = () => {
     }
   };
 
+  const handleApplyUpdate = () => {
+    const isDirty = operationalWorkTracker.isWorkInProgress();
+    if (isDirty) {
+      setUpdateBlockedNotice('Update ready. Finish or save current work before reloading.');
+      return;
+    }
+
+    setUpdateBlockedNotice(null);
+    const result = applyUpdateSafely(true);
+    if (!result.applied && result.reason === 'unsaved_work') {
+      setUpdateBlockedNotice('Update ready. Finish or save current work before reloading.');
+    }
+  };
+
   // If a new version of the app is available, display prominent safe update bar
   if (hasUpdate) {
     return (
-      <div className="rounded-xl border border-sky-800/80 bg-sky-950/80 p-3 text-xs flex items-center justify-between gap-3 text-sky-200 shadow-md animate-fadeIn">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-sky-900 border border-sky-700 flex items-center justify-center text-sky-300 shrink-0">
-            <RefreshCw className="w-4 h-4 animate-spin" />
+      <div className="rounded-xl border border-sky-800/80 bg-sky-950/80 p-3 text-xs flex flex-col gap-2 text-sky-200 shadow-md animate-fadeIn">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-sky-900 border border-sky-700 flex items-center justify-center text-sky-300 shrink-0">
+              <RefreshCw className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-white tracking-tight">
+                App Update Available
+              </p>
+              <p className="text-[11px] text-sky-300/70 truncate">
+                A newer version of Chief Mobile is ready.
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-white tracking-tight">
-              App Update Available
-            </p>
-            <p className="text-[11px] text-sky-300/70 truncate">
-              A newer version of Chief Mobile is ready.
-            </p>
-          </div>
+          <button
+            onClick={handleApplyUpdate}
+            className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold font-mono text-xs transition-colors shrink-0 shadow-sm"
+          >
+            Update Now
+          </button>
         </div>
-        <button
-          onClick={() => applyUpdateSafely(true)}
-          className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold font-mono text-xs transition-colors shrink-0 shadow-sm"
-        >
-          Update Now
-        </button>
+
+        {updateBlockedNotice && (
+          <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-950/80 border border-amber-700 text-amber-200 text-[11px] font-mono">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+            <span>{updateBlockedNotice}</span>
+          </div>
+        )}
       </div>
     );
   }

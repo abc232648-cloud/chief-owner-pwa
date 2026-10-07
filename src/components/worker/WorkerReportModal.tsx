@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Wifi, 
@@ -40,6 +40,7 @@ import {
 } from '../../types/workerReport';
 import { WORKER_REPORT_CATEGORIES } from '../../data/workerReportCategories';
 import { INITIAL_FARM_TASKS } from '../../data/farmAgentData';
+import { operationalWorkTracker } from '../../storage/operationalWorkTracker';
 
 interface WorkerReportModalProps {
   isOpen: boolean;
@@ -71,6 +72,18 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
   const [submittedReport, setSubmittedReport] = useState<WorkerReportItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localValidationError, setLocalValidationError] = useState<string | null>(null);
+
+  // Track operational in-progress work to prevent unsafe PWA reloads
+  useEffect(() => {
+    if (isOpen) {
+      operationalWorkTracker.setDirty('worker_report', true);
+    } else {
+      operationalWorkTracker.setDirty('worker_report', false);
+    }
+    return () => {
+      operationalWorkTracker.setDirty('worker_report', false);
+    };
+  }, [isOpen]);
 
   // BATCH 13B.3.1.1 Requirement 4: Production operational values must start blank/null/unselected.
   // Sample prefilled values remain strictly for testing isolated behind isDevMode.
@@ -350,7 +363,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
     try {
       const res = await submitReport(selectedCategory, payloadData, attachments, summary);
       if (res.report.status === 'queued') {
-        enqueueAction({
+        const queueRes = await enqueueAction({
           actionType: 'SUBMIT_WORKER_REPORT',
           title: `${WORKER_REPORT_CATEGORIES.find(c => c.id === selectedCategory)?.shortLabel}: ${summary.slice(0, 45)}`,
           domain: 'Farm Agent',
@@ -359,6 +372,9 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
           reportPayload: res.report,
           isPolicyPermitted: true
         });
+        if (!queueRes.success) {
+          throw new Error(queueRes.error || 'Durable offline queue persistence failed.');
+        }
       }
       setSubmittedReport(res.report);
       setActiveView('confirmation');

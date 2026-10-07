@@ -34,12 +34,12 @@ interface OfflineQueueContextType {
   syncState: 'NEVER_SYNCED' | 'STALE' | 'CURRENT';
   isDataStale: boolean;
   isEffectivelyOffline: boolean;
-  enqueueAction: (options: EnqueueOptions) => { success: boolean; item?: QueueItem; error?: string };
+  enqueueAction: (options: EnqueueOptions) => Promise<{ success: boolean; item?: QueueItem; error?: string }>;
   syncQueueItem: (id: string) => Promise<boolean>;
   syncAllEligible: () => Promise<{ synced: number; failed: number }>;
   resolveConflict: (id: string, resolution: 'use_local' | 'accept_server' | 'discard') => Promise<void>;
-  deleteQueueItem: (id: string) => void;
-  clearCompleted: () => void;
+  deleteQueueItem: (id: string) => Promise<void>;
+  clearCompleted: () => Promise<void>;
   cachedDataSources: CachedDataSource[];
 }
 
@@ -174,7 +174,8 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   ] : [];
 
   // Enqueue an action — CRITICAL SAFETY CHECK: NEVER QUEUE BLINDLY
-  const enqueueAction = useCallback((options: EnqueueOptions): { success: boolean; item?: QueueItem; error?: string } => {
+  // BATCH 13C.2A.1: Durable persistence MUST succeed before claiming queued success.
+  const enqueueAction = useCallback(async (options: EnqueueOptions): Promise<{ success: boolean; item?: QueueItem; error?: string }> => {
     // BATCH 13B.3: Authenticated worker identity required. Never invent worker identity.
     if (!user || !user.userId) {
       return { success: false, error: 'Authenticated worker identity required.' };
@@ -211,6 +212,16 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     };
 
+    // Await durable IndexedDB persistence FIRST
+    const saveRes = await queueStorage.save(newItem, user.userId);
+    if (!saveRes.success) {
+      return {
+        success: false,
+        error: saveRes.error || 'Durable local storage failed. Action was not queued. No Chief decision occurred.'
+      };
+    }
+
+    // Only after durable persistence succeeds, update in-memory state
     setQueue(prev => [newItem, ...prev]);
     return { success: true, item: newItem };
   }, [user]);
@@ -456,11 +467,13 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
     ));
   }, []);
 
-  const deleteQueueItem = (id: string) => {
+  const deleteQueueItem = async (id: string): Promise<void> => {
+    await queueStorage.delete(id, user?.userId ?? null);
     setQueue(prev => prev.filter(q => q.id !== id));
   };
 
-  const clearCompleted = () => {
+  const clearCompleted = async (): Promise<void> => {
+    await queueStorage.clearCompleted(user?.userId ?? null);
     setQueue(prev => prev.filter(q => q.status !== 'synced'));
   };
 

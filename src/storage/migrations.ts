@@ -1,41 +1,48 @@
 /**
  * CHIEF Client Storage Migrations
  * 
- * Safely migrates legacy localStorage payloads into the versioned IndexedDB store.
- * 
- * IMMUTABLE RULES:
- * - Deterministic, non-destructive migration.
- * - If a legacy record lacks sufficient metadata for safe exact replay:
- *   fail safely as 'failed_permanent' with explicit message:
+ * BATCH 13C.2A.1 IMMUTABLE SPECIFICATION:
+ * - Deterministic, non-destructive migration to Schema Version 2.
+ * - Legacy records with established attribution keep their authentic owner namespace.
+ * - Legacy records WITHOUT established attribution are migrated to isolated 'unauthenticated-legacy' namespace.
+ *   THEY ARE NEVER ATTACHED TO THE CURRENTLY LOGGED-IN USER.
+ * - Unsafe legacy queued records are quarantined as 'failed_permanent' with:
  *   "Legacy queued payload cannot be replayed safely. No Chief decision was made."
- * - Do NOT coerce, heuristically guess categories, or manufacture Chief acceptances.
+ * - Local reports are never escalated to accepted_by_chief without backend proof.
+ * - Migration bookkeeping is environment and schema-version bound (not user-bound).
  */
 
 import { QueueItem } from '../types/queue';
 import { WorkerReportItem } from '../types/workerReport';
-import { StorageEnvironment, STORE_NAMES, STORAGE_SCHEMA_VERSION, PersistedRecord } from './schema';
+import { 
+  StorageEnvironment, 
+  STORE_NAMES, 
+  STORAGE_SCHEMA_VERSION, 
+  PersistedRecord, 
+  StorageMetadataRecord 
+} from './schema';
 import { idbPut, idbGet } from './idb';
 
-const MIGRATION_FLAG_KEY = 'chief_migration_status_v1';
-
-export async function runClientMigrations(environment: StorageEnvironment, currentUserId: string | null): Promise<void> {
+export async function runClientMigrations(environment: StorageEnvironment): Promise<void> {
   if (typeof window === 'undefined' || !window.localStorage) {
     return;
   }
 
+  const migrationKey = `chief_migration_status_${environment.toLowerCase()}_v${STORAGE_SCHEMA_VERSION}`;
+
   try {
-    // Check if migration has already been executed for this environment
-    const migrationMeta = await idbGet<{ key: string; executedAt: number }>(
+    // 1. Check if migration has already been executed for this environment and schema version
+    const migrationMeta = await idbGet<StorageMetadataRecord>(
       environment,
       STORE_NAMES.METADATA,
-      MIGRATION_FLAG_KEY
+      migrationKey
     );
 
-    if (migrationMeta) {
-      return; // Already migrated
+    if (migrationMeta && migrationMeta.updatedAt) {
+      return; // Already completed for this environment
     }
 
-    // 1. Migrate Queue Items
+    // 2. Migrate Legacy LocalStorage Queue Items
     const queueKey = environment === 'PROD' 
       ? 'chief_offline_queue_prod_v2' 
       : 'chief_offline_queue_dev_v2';
@@ -48,8 +55,19 @@ export async function runClientMigrations(environment: StorageEnvironment, curre
           for (const item of parsed) {
             let sanitizedItem: QueueItem = { ...item };
 
-            // Requirement 5: Legacy validation
-            const actionTypeStr = String(sanitizedItem.actionType).toUpperCase();
+            // STRICT OWNERSHIP RULE:
+            // Only preserve identity if authentic worker attribution exists with a non-empty userId.
+            // NEVER assign to whoever happens to be currently logged in.
+            const ownerNamespace = (
+              sanitizedItem.workerAttribution?.userId && 
+              typeof sanitizedItem.workerAttribution.userId === 'string' &&
+              sanitizedItem.workerAttribution.userId.trim().length > 0
+            )
+              ? sanitizedItem.workerAttribution.userId.trim()
+              : 'unauthenticated-legacy';
+
+            // REPLAY SAFETY CHECK:
+            const actionTypeStr = String(sanitizedItem.actionType || '').toUpperCase();
             if (actionTypeStr === 'SUBMIT_WORKER_REPORT') {
               if (!sanitizedItem.reportPayload || typeof sanitizedItem.reportPayload !== 'object') {
                 sanitizedItem = {
@@ -61,8 +79,8 @@ export async function runClientMigrations(environment: StorageEnvironment, curre
             }
 
             const record: PersistedRecord<QueueItem> = {
+              userNamespace: ownerNamespace,
               id: sanitizedItem.id,
-              userNamespace: currentUserId || 'unauthenticated',
               environment,
               schemaVersion: STORAGE_SCHEMA_VERSION,
               data: sanitizedItem,
@@ -75,11 +93,11 @@ export async function runClientMigrations(environment: StorageEnvironment, curre
         }
         localStorage.removeItem(queueKey);
       } catch {
-        // Leave unparsed legacy data alone
+        // Leave unparsed data intact
       }
     }
 
-    // 2. Migrate Worker Reports
+    // 3. Migrate Legacy LocalStorage Worker Reports
     const reportKey = environment === 'PROD'
       ? 'chief_worker_reports_prod_v1'
       : 'chief_worker_reports_dev_v1';
@@ -90,19 +108,29 @@ export async function runClientMigrations(environment: StorageEnvironment, curre
         const parsedReports = JSON.parse(rawReports) as WorkerReportItem[];
         if (Array.isArray(parsedReports)) {
           for (const report of parsedReports) {
-            // Guarantee local status is never escalated to accepted_by_chief
             const sanitizedReport: WorkerReportItem = { ...report };
+
+            // STRICT OWNERSHIP RULE:
+            const ownerNamespace = (
+              sanitizedReport.workerId &&
+              typeof sanitizedReport.workerId === 'string' &&
+              sanitizedReport.workerId.trim().length > 0
+            )
+              ? sanitizedReport.workerId.trim()
+              : 'unauthenticated-legacy';
+
+            // Guarantee local status is never escalated to accepted_by_chief without proof
             if (sanitizedReport.status === 'accepted_by_chief' && !sanitizedReport.backendConfirmationHash) {
               sanitizedReport.status = 'saved_locally';
             }
 
             const record: PersistedRecord<WorkerReportItem> = {
+              userNamespace: ownerNamespace,
               id: sanitizedReport.id,
-              userNamespace: sanitizedReport.workerId || currentUserId || 'unauthenticated',
               environment,
               schemaVersion: STORAGE_SCHEMA_VERSION,
               data: sanitizedReport,
-              createdAt: new Date(sanitizedReport.createdAt).getTime() || Date.now(),
+              createdAt: sanitizedReport.createdAt ? new Date(sanitizedReport.createdAt).getTime() : Date.now(),
               updatedAt: Date.now()
             };
 
@@ -111,15 +139,17 @@ export async function runClientMigrations(environment: StorageEnvironment, curre
         }
         localStorage.removeItem(reportKey);
       } catch {
-        // Leave unparsed legacy data alone
+        // Leave unparsed data intact
       }
     }
 
-    // Record migration completion
+    // 4. Record migration completion in metadata
     await idbPut(environment, STORE_NAMES.METADATA, {
-      key: MIGRATION_FLAG_KEY,
-      executedAt: Date.now(),
-      schemaVersion: STORAGE_SCHEMA_VERSION
+      key: migrationKey,
+      value: { completed: true, environment, version: STORAGE_SCHEMA_VERSION },
+      environment,
+      schemaVersion: STORAGE_SCHEMA_VERSION,
+      updatedAt: Date.now()
     });
   } catch (err) {
     console.warn('[Chief Storage Migration] Non-fatal migration error:', err);

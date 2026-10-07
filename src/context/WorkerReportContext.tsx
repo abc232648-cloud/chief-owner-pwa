@@ -241,10 +241,6 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       syncAttempts: 0
     };
 
-    // Save locally immediately
-    setReports(prev => [initialReport, ...prev]);
-    setLastSubmittedReport(initialReport);
-
     // Client-side validation: must NOT be called a Chief rejection
     const localValError = getClientValidationError(category, data, isDev);
     if (localValError) {
@@ -254,10 +250,19 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         errorOrigin: 'client',
         rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${localValError}`
       };
-      setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
       setLastSubmittedReport(rejectedReport);
       return { success: false, report: rejectedReport };
     }
+
+    // REQUIREMENT 5: Durable IndexedDB write MUST succeed before claiming saved_locally
+    const saveRes = await reportStorage.save(initialReport, user.userId);
+    if (!saveRes.success) {
+      throw new Error(`Report could not be stored on this device. No Chief submission or decision occurred.`);
+    }
+
+    // Only after successful durable persistence may UI/state claim saved_locally:
+    setReports(prev => [initialReport, ...prev]);
+    setLastSubmittedReport(initialReport);
 
     // Step 2: Check connectivity. If offline, transition directly to 'queued'
     const isNetworkOffline = !navigator.onLine || chiefState.connectivity === 'offline';
@@ -267,6 +272,10 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         status: 'queued',
         isQueuedOffline: true
       };
+      const queuedSaveRes = await reportStorage.save(queuedReport, user.userId);
+      if (!queuedSaveRes.success) {
+        throw new Error(`Report could not be stored on this device. No Chief submission or decision occurred.`);
+      }
       setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
       setLastSubmittedReport(queuedReport);
       return { success: true, report: queuedReport };
@@ -278,6 +287,7 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       status: 'syncing',
       syncAttempts: 1
     };
+    await reportStorage.save(syncingReport, user.userId);
     setReports(prev => prev.map(r => r.id === reportId ? syncingReport : r));
     setLastSubmittedReport(syncingReport);
 
@@ -302,6 +312,7 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         backendConfirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
         isQueuedOffline: false
       };
+      await reportStorage.save(acceptedReport, user.userId);
       setReports(prev => prev.map(r => r.id === reportId ? acceptedReport : r));
       setLastSubmittedReport(acceptedReport);
       return { success: true, report: acceptedReport };
@@ -314,6 +325,7 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
           errorOrigin: 'client',
           rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}`
         };
+        await reportStorage.save(clientValReport, user.userId);
         setReports(prev => prev.map(r => r.id === reportId ? clientValReport : r));
         setLastSubmittedReport(clientValReport);
         return { success: false, report: clientValReport };
@@ -328,6 +340,7 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
           errorOrigin: 'chief',
           rejectionReason: `Rejected by Chief: ${errorMsg}`
         };
+        await reportStorage.save(rejectedReport, user.userId);
         setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
         setLastSubmittedReport(rejectedReport);
         return { success: false, report: rejectedReport };
@@ -341,6 +354,7 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
         isQueuedOffline: true,
         rejectionReason: undefined
       };
+      await reportStorage.save(queuedReport, user.userId);
       setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
       setLastSubmittedReport(queuedReport);
       return { success: true, report: queuedReport };
@@ -514,7 +528,8 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [chiefState.connectivity, queuedCount, isSyncingQueue, syncQueuedReports]);
 
-  const deleteReport = (id: string) => {
+  const deleteReport = async (id: string) => {
+    await reportStorage.delete(id, user?.userId ?? null);
     setReports(prev => prev.filter(r => r.id !== id));
   };
 

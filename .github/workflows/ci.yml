@@ -32,6 +32,9 @@ jobs:
       - name: Deterministic dependency install (npm ci)
         run: npm ci
 
+      - name: PWA static-asset integrity validation
+        run: npm run check:pwa
+
       - name: Strict TypeScript typecheck
         run: npm run typecheck
 

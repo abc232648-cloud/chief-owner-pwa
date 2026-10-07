@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "check:secrets": "bash scripts/check-secrets.sh",
-    "check": "npm run check:secrets && npm run typecheck && npm run build"
+    "check:pwa": "bash scripts/check-pwa-assets.sh",
+    "check": "npm run check:secrets && npm run check:pwa && npm run typecheck && npm run build"
   },
   "dependencies": {
     "lucide-react": "^0.546.0",

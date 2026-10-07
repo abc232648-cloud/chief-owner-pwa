@@ -1,8 +1,11 @@
 /**
  * CHIEF IndexedDB Adapter
  * 
- * Provides robust, typed, transactional storage backed by window.indexedDB.
- * Handles storage quotas, private mode limitations, and schema version upgrades.
+ * BATCH 13C.2A.1 IMMUTABLE SPECIFICATION:
+ * - Version 2: True compound primary keys ['userNamespace', 'id'] on offline_queue and worker_reports.
+ * - Prevents cross-user ID collision (User A with 'rep-1' cannot overwrite User B with 'rep-1').
+ * - Handles storage quotas, private mode limitations, and schema version upgrades.
+ * - Single authoritative telemetry read cache remains memory/sessionStorage.
  */
 
 import { 
@@ -48,25 +51,26 @@ export async function openDatabase(environment: StorageEnvironment): Promise<IDB
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
-      // 1. Offline Queue Store: primary key 'id', index on 'userNamespace'
-      if (!db.objectStoreNames.contains(STORE_NAMES.QUEUE)) {
-        const queueStore = db.createObjectStore(STORE_NAMES.QUEUE, { keyPath: 'id' });
-        queueStore.createIndex('userNamespace', 'userNamespace', { unique: false });
-        queueStore.createIndex('environment', 'environment', { unique: false });
+      // 1. Clean up deprecated telemetry cache store if present from v1
+      if (db.objectStoreNames.contains('telemetry_cache')) {
+        db.deleteObjectStore('telemetry_cache');
       }
 
-      // 2. Worker Reports Store: primary key 'id', index on 'userNamespace'
-      if (!db.objectStoreNames.contains(STORE_NAMES.REPORTS)) {
-        const reportStore = db.createObjectStore(STORE_NAMES.REPORTS, { keyPath: 'id' });
-        reportStore.createIndex('userNamespace', 'userNamespace', { unique: false });
-        reportStore.createIndex('environment', 'environment', { unique: false });
+      // 2. Offline Queue Store: compound primary key ['userNamespace', 'id']
+      if (db.objectStoreNames.contains(STORE_NAMES.QUEUE)) {
+        db.deleteObjectStore(STORE_NAMES.QUEUE);
       }
+      const queueStore = db.createObjectStore(STORE_NAMES.QUEUE, { keyPath: ['userNamespace', 'id'] });
+      queueStore.createIndex('userNamespace', 'userNamespace', { unique: false });
+      queueStore.createIndex('environment', 'environment', { unique: false });
 
-      // 3. Telemetry Cache Store: primary key 'resourceKey', index on 'userNamespace'
-      if (!db.objectStoreNames.contains(STORE_NAMES.TELEMETRY_CACHE)) {
-        const cacheStore = db.createObjectStore(STORE_NAMES.TELEMETRY_CACHE, { keyPath: 'resourceKey' });
-        cacheStore.createIndex('userNamespace', 'userNamespace', { unique: false });
+      // 3. Worker Reports Store: compound primary key ['userNamespace', 'id']
+      if (db.objectStoreNames.contains(STORE_NAMES.REPORTS)) {
+        db.deleteObjectStore(STORE_NAMES.REPORTS);
       }
+      const reportStore = db.createObjectStore(STORE_NAMES.REPORTS, { keyPath: ['userNamespace', 'id'] });
+      reportStore.createIndex('userNamespace', 'userNamespace', { unique: false });
+      reportStore.createIndex('environment', 'environment', { unique: false });
 
       // 4. Metadata Store: primary key 'key'
       if (!db.objectStoreNames.contains(STORE_NAMES.METADATA)) {
@@ -121,7 +125,7 @@ export async function idbPut<T>(
 }
 
 /**
- * Generic get by key from an object store.
+ * Generic get by primary key (supports single or compound keys).
  */
 export async function idbGet<T>(
   environment: StorageEnvironment,
@@ -144,11 +148,23 @@ export async function idbGet<T>(
 }
 
 /**
+ * Get a user-scoped record by its compound key [userNamespace, id].
+ */
+export async function idbGetUserRecord<T>(
+  environment: StorageEnvironment,
+  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS,
+  userNamespace: string,
+  id: string
+): Promise<T | null> {
+  return idbGet<T>(environment, storeName, [userNamespace, id]);
+}
+
+/**
  * Query all records matching userNamespace index.
  */
 export async function idbGetByUser<T>(
   environment: StorageEnvironment,
-  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS | typeof STORE_NAMES.TELEMETRY_CACHE,
+  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS,
   userNamespace: string
 ): Promise<T[]> {
   const db = await openDatabase(environment);
@@ -168,7 +184,31 @@ export async function idbGetByUser<T>(
 }
 
 /**
- * Delete a single record by primary key.
+ * Delete a user-scoped record by its compound primary key [userNamespace, id].
+ */
+export async function idbDeleteUserRecord(
+  environment: StorageEnvironment,
+  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS,
+  userNamespace: string,
+  id: string
+): Promise<void> {
+  const db = await openDatabase(environment);
+  return new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const req = store.delete([userNamespace, id]);
+
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error || new Error(`Delete failed on ${storeName}`));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Delete a single record by primary key (for metadata store).
  */
 export async function idbDelete(
   environment: StorageEnvironment,
@@ -195,7 +235,7 @@ export async function idbDelete(
  */
 export async function idbClearUserRecords(
   environment: StorageEnvironment,
-  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS | typeof STORE_NAMES.TELEMETRY_CACHE,
+  storeName: typeof STORE_NAMES.QUEUE | typeof STORE_NAMES.REPORTS,
   userNamespace: string
 ): Promise<void> {
   const db = await openDatabase(environment);

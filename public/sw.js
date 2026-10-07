@@ -18,9 +18,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
-    }).then(() => {
-      // Promptly take over without forcing immediate client reload
-      return self.skipWaiting();
     })
   );
 });

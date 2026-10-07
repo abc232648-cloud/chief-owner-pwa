@@ -1,26 +1,26 @@
 /**
  * CHIEF Client Storage Schema & Namespace Definitions
  * 
- * BATCH 13C.2A IMMUTABLE SPECIFICATION:
- * - Versioned, client-authoritative schema definitions.
+ * BATCH 13C.2A.1 IMMUTABLE SPECIFICATION:
+ * - Version 2: Compound primary-key architecture [userNamespace, id] for strict per-user isolation.
+ * - Single authoritative telemetry read cache remains memory/sessionStorage (telemetry_cache store removed).
  * - Strict environment (PROD vs DEV) and authenticated user isolation.
  * - Sensitive credentials (tokens, secrets, passwords) are NEVER persisted.
  */
 
-export const STORAGE_SCHEMA_VERSION = 1;
+export const STORAGE_SCHEMA_VERSION = 2;
 
 export type StorageEnvironment = 'PROD' | 'DEV';
 
 export const STORE_NAMES = {
   QUEUE: 'offline_queue',
   REPORTS: 'worker_reports',
-  TELEMETRY_CACHE: 'telemetry_cache',
   METADATA: 'storage_metadata'
 } as const;
 
 export interface PersistedRecord<T> {
-  id: string;
-  userNamespace: string; // Stable authenticated userId or 'anonymous'
+  userNamespace: string; // Stable authenticated userId, 'unauthenticated', or 'unauthenticated-legacy'
+  id: string;            // Record ID
   environment: StorageEnvironment;
   schemaVersion: number;
   data: T;
@@ -28,22 +28,11 @@ export interface PersistedRecord<T> {
   updatedAt: number;
 }
 
-export interface TelemetryCacheRecord<T = unknown> {
-  resourceKey: string;
-  userNamespace: string;
-  environment: StorageEnvironment;
-  cachedAt: number;
-  originalFetchAt: number;
-  provenance: 'CHIEF_API_LIVE' | 'SESSION_CACHE';
-  stalenessThresholdMs: number;
-  correlationId: string;
-  schemaVersion: number;
-  data: T;
-}
-
 export interface StorageMetadataRecord {
   key: string;
   value: unknown;
+  environment?: StorageEnvironment;
+  schemaVersion?: number;
   updatedAt: number;
 }
 
