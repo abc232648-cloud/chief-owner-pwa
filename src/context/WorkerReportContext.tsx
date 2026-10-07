@@ -1,34 +1,37 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { 
-  WorkerReportItem, 
-  WorkerReportCategory, 
-  WorkerReportStatus, 
-  WorkerReportAttachment 
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import {
+  WorkerReportAttachment,
+  WorkerReportCategory,
+  WorkerReportItem
 } from '../types/workerReport';
-import { 
-  INITIAL_SAMPLE_WORKER_REPORTS, 
-  WORKER_REPORT_CATEGORIES 
-} from '../data/workerReportCategories';
+import { INITIAL_SAMPLE_WORKER_REPORTS, WORKER_REPORT_CATEGORIES } from '../data/workerReportCategories';
 import { useAuth } from './AuthContext';
 import { useChief } from './ChiefContext';
 import { chiefApi, ChiefApiError } from '../api';
-
 import { isChiefDevMode } from '../config/devMode';
 import { reportStorage } from '../storage';
 
-/**
- * Validates whether an error represents an explicit, authoritative Chief validation/policy rejection.
- * Client validation errors, generic JS errors, HTTP 5xx, 401, 403, 404, network drops, or malformed payloads
- * must NEVER be converted to an authoritative Chief rejection.
- */
+interface WorkerReportContextType {
+  reports: WorkerReportItem[];
+  queuedCount: number;
+  isSyncingQueue: boolean;
+  lastSubmittedReport: WorkerReportItem | null;
+  submitReport: (
+    category: WorkerReportCategory,
+    data: Record<string, any>,
+    evidenceAttachments: WorkerReportAttachment[],
+    summary: string
+  ) => Promise<{ success: boolean; report: WorkerReportItem }>;
+  syncQueuedReports: () => Promise<{ syncedCount: number; failedCount: number }>;
+  retryReport: (id: string) => Promise<boolean>;
+  deleteReport: (id: string) => Promise<void>;
+  clearResolvedReports: () => Promise<void>;
+}
+
+const WorkerReportContext = createContext<WorkerReportContextType | undefined>(undefined);
+
 function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
-  if (!(err instanceof ChiefApiError)) {
-    return false;
-  }
-  // Local/client validation errors are NEVER an authoritative Chief decision
-  if (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR') {
-    return false;
-  }
+  if (!(err instanceof ChiefApiError) || err.origin !== 'chief') return false;
   if (
     err.isNetworkError ||
     err.isTimeout ||
@@ -38,22 +41,22 @@ function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
     err.statusCode === 401 ||
     err.statusCode === 403 ||
     err.statusCode === 404
-  ) {
-    return false;
-  }
+  ) return false;
+
   return (
     err.statusCode === 422 ||
     err.code === 'POLICY_REJECTION' ||
     err.code === 'THRESHOLD_BREACH' ||
-    err.code === 'MISSING_MANDATORY_FIELD'
+    err.code === 'MISSING_MANDATORY_FIELD' ||
+    err.code === 'VALIDATION_ERROR'
   );
 }
 
-/**
- * BATCH 13B.3.1.1: Local client-side validation for empty/required fields.
- * Must NEVER be called a Chief rejection.
- */
-function getClientValidationError(category: WorkerReportCategory, data: Record<string, any>, isDev: boolean): string | null {
+function getClientValidationError(
+  category: WorkerReportCategory,
+  data: Record<string, any>,
+  isDev: boolean
+): string | null {
   switch (category) {
     case 'mortality':
       if (!data.houseNumber) return 'Flock housing unit must be selected.';
@@ -70,8 +73,8 @@ function getClientValidationError(category: WorkerReportCategory, data: Record<s
     case 'water':
       if (!data.houseNumber) return 'Barn location must be selected.';
       if (data.meterReadingLiters === undefined || data.meterReadingLiters === null || data.meterReadingLiters < 0) return 'Header meter reading (liters) cannot be empty.';
-      if (data.pressureGaugeReadingPsi === undefined || data.pressureGaugeReadingPsi === null || data.pressureGaugeReadingPsi < 0) return 'Line column pressure (PSI) cannot be empty.';
-      if (!data.drinkerStatus) return 'Nipple drinker line inspection status must be selected.';
+      if (data.pressureGaugeReadingPsi === undefined || data.pressureGaugeReadingPsi === null || data.pressureGaugeReadingPsi < 0) return 'Line pressure (PSI) cannot be empty.';
+      if (!data.drinkerStatus) return 'Drinker line status must be selected.';
       return null;
     case 'egg_production':
       if (!data.houseNumber) return 'Housing unit must be selected.';
@@ -80,159 +83,149 @@ function getClientValidationError(category: WorkerReportCategory, data: Record<s
       return null;
     case 'flock_observation':
       if (!data.houseNumber) return 'Housing unit must be selected.';
-      if (!data.activityLevel) return 'Bird activity & spacing must be selected.';
-      if (!data.droppingsCondition) return 'Droppings / fecal appearance must be selected.';
-      if (!data.litterMoistureCondition) return 'Litter moisture condition must be selected.';
+      if (!data.activityLevel) return 'Bird activity must be selected.';
+      if (!data.droppingsCondition) return 'Droppings condition must be selected.';
+      if (!data.litterMoistureCondition) return 'Litter condition must be selected.';
       return null;
     case 'equipment_fault':
-      if (!data.urgency) return 'Urgency / severity level must be selected.';
+      if (!data.urgency) return 'Urgency level must be selected.';
       if (!data.faultType) return 'Fault type must be selected.';
-      if (!data.description || String(data.description).trim().length < 3) return 'Fault description details cannot be empty.';
+      if (!data.description || String(data.description).trim().length < 3) return 'Fault description cannot be empty.';
       return null;
     case 'task_completion':
       if (!isDev) return 'No authoritative Farm tasks available.';
       if (!data.taskId) return 'Assigned field task must be selected.';
-      if (!data.completionMinutes || data.completionMinutes <= 0) return 'Time spent (minutes) must be greater than zero.';
+      if (!data.completionMinutes || data.completionMinutes <= 0) return 'Time spent must be greater than zero.';
       return null;
     case 'environmental_issue':
       if (!data.houseNumber) return 'Housing unit must be selected.';
-      if (data.temperatureC === undefined || data.temperatureC === null) return 'House ambient temperature (°C) cannot be empty.';
-      if (data.relativeHumidityPct === undefined || data.relativeHumidityPct === null) return 'Relative humidity (%) cannot be empty.';
-      if (!data.ammoniaRating) return 'Ammonia (NH3) odor rating must be selected.';
+      if (data.temperatureC === undefined || data.temperatureC === null) return 'Temperature cannot be empty.';
+      if (data.relativeHumidityPct === undefined || data.relativeHumidityPct === null) return 'Relative humidity cannot be empty.';
+      if (!data.ammoniaRating) return 'Ammonia rating must be selected.';
       return null;
     case 'emergency':
       if (!data.emergencyType) return 'Emergency category must be selected.';
-      if (!data.immediateActionTaken || String(data.immediateActionTaken).trim().length < 5) return 'Emergency broadcast requires documented immediate containment action taken (at least 5 characters).';
+      if (!data.immediateActionTaken || String(data.immediateActionTaken).trim().length < 5) return 'Document the immediate action taken.';
       return null;
     case 'photo_evidence':
-      if (!isDev) return 'Photo evidence requires camera/file upload capability. Synthetic evidence photos are disabled in production.';
+      if (!isDev) return 'Photo upload capability is not provisioned in production.';
       return null;
   }
 }
 
-interface WorkerReportContextType {
-  reports: WorkerReportItem[];
-  queuedCount: number;
-  isSyncingQueue: boolean;
-  lastSubmittedReport: WorkerReportItem | null;
-  submitReport: (
-    category: WorkerReportCategory,
-    data: Record<string, any>,
-    evidenceAttachments: WorkerReportAttachment[],
-    summary: string
-  ) => Promise<{ success: boolean; report: WorkerReportItem }>;
-  syncQueuedReports: () => Promise<{ syncedCount: number; failedCount: number }>;
-  retryReport: (id: string) => Promise<boolean>;
-  deleteReport: (id: string) => void;
-  clearResolvedReports: () => void;
+/**
+ * Removes fields the current UI infers rather than receives from an authoritative source
+ * or explicit operator input. This is a final client-side truth boundary before persistence
+ * and before any Chief API call.
+ */
+function sanitizeReportData(
+  category: WorkerReportCategory,
+  input: Record<string, any>,
+  authenticatedName: string,
+  isDev: boolean
+): Record<string, any> {
+  const data = { ...input };
+
+  if (category === 'mortality') {
+    delete data.flockId;
+    delete data.immediateInterlockNeeded;
+  }
+
+  if (category === 'equipment_fault' && data.equipmentId === 'eq-field') {
+    delete data.equipmentId;
+  }
+
+  if (category === 'emergency') {
+    delete data.physicalInterlockTripped;
+    delete data.requiresSupervisorDispatch;
+  }
+
+  if (category === 'task_completion') {
+    if (!isDev) {
+      delete data.taskTitle;
+    }
+    data.workerSignOff = authenticatedName;
+  }
+
+  return data;
 }
 
-const WorkerReportContext = createContext<WorkerReportContextType | undefined>(undefined);
+async function persistOrThrow(report: WorkerReportItem, userId: string, message: string): Promise<void> {
+  const result = await reportStorage.save(report, userId);
+  if (!result.success) {
+    throw new Error(`${message} No Chief decision occurred.`);
+  }
+}
 
 export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const { state: chiefState } = useChief();
   const isDev = isChiefDevMode();
 
-  // BATCH 13C.2A: Versioned client storage layer with authenticated user isolation
-  const [reports, setReports] = useState<WorkerReportItem[]>(() => {
-    // Production fresh install MUST start empty
-    if (!isDev) {
-      return [];
-    }
-    return INITIAL_SAMPLE_WORKER_REPORTS;
-  });
+  const [reports, setReports] = useState<WorkerReportItem[]>(() => isDev ? INITIAL_SAMPLE_WORKER_REPORTS : []);
   const [isReportsLoaded, setIsReportsLoaded] = useState(false);
-
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
   const [lastSubmittedReport, setLastSubmittedReport] = useState<WorkerReportItem | null>(null);
 
-  // Load user-scoped reports from versioned storage
   useEffect(() => {
-    let isCancelled = false;
-
-    const loadUserReports = async () => {
-      try {
-        const stored = await reportStorage.getAll(user?.userId ?? null);
-        if (!isCancelled) {
-          if (stored && stored.length > 0) {
-            setReports(stored);
-          } else if (isDev) {
-            setReports(INITIAL_SAMPLE_WORKER_REPORTS);
-          } else {
-            setReports([]);
-          }
-          setIsReportsLoaded(true);
-        }
-      } catch (err) {
-        console.warn('[WorkerReportContext] Error loading reports from IndexedDB:', err);
-        if (!isCancelled) {
-          setIsReportsLoaded(true);
-        }
-      }
-    };
-
+    let cancelled = false;
     setIsReportsLoaded(false);
-    loadUserReports();
 
-    return () => {
-      isCancelled = true;
-    };
+    void reportStorage.getAll(user?.userId ?? null).then(stored => {
+      if (cancelled) return;
+      if (stored.length > 0) setReports(stored);
+      else setReports(isDev ? INITIAL_SAMPLE_WORKER_REPORTS : []);
+      setIsReportsLoaded(true);
+    }).catch(error => {
+      console.warn('[WorkerReportContext] Failed to load reports:', error);
+      if (!cancelled) {
+        setReports(isDev ? INITIAL_SAMPLE_WORKER_REPORTS : []);
+        setIsReportsLoaded(true);
+      }
+    });
+
+    return () => { cancelled = true; };
   }, [user?.userId, isDev]);
 
-  // Persist reports to versioned IndexedDB with user namespace isolation
+  // Storage layer independently rejects namespace/ownership mismatches. This effect is
+  // only state synchronization; operation-level success always awaits its own durable write.
   useEffect(() => {
     if (!isReportsLoaded) return;
-    reportStorage.saveAll(reports, user?.userId ?? null);
+    void reportStorage.saveAll(reports, user?.userId ?? null);
   }, [reports, isReportsLoaded, user?.userId]);
 
-  // Count items queued offline
-  const queuedCount = reports.filter(r => r.status === 'queued').length;
+  const queuedCount = reports.filter(report => report.status === 'queued').length;
 
-  // Single report submission handler
   const submitReport = useCallback(async (
     category: WorkerReportCategory,
-    data: Record<string, any>,
+    rawData: Record<string, any>,
     evidenceAttachments: WorkerReportAttachment[],
     summary: string
   ): Promise<{ success: boolean; report: WorkerReportItem }> => {
-    // BATCH 13B.3: Worker identity must require genuine authenticated actor.
-    // If no authenticated identity exists, block submission. NEVER invent worker identity.
-    if (!user || !user.userId || !user.name) {
-      throw new Error('Authenticated worker identity required.');
-    }
+    if (!user?.userId || !user.name) throw new Error('Authenticated worker identity required.');
 
-    const categoryMeta = WORKER_REPORT_CATEGORIES.find(c => c.id === category);
-    const categoryLabel = categoryMeta?.title || category;
+    const data = sanitizeReportData(category, rawData, user.name, isDev);
+    const validationError = getClientValidationError(category, data, isDev);
     const now = new Date();
-    const randNum = Math.floor(1000 + Math.random() * 9000);
-    const reportNumber = `RPT-2026-${randNum}`;
-    const reportId = `rep-${Date.now()}-${randNum}`;
+    const nonce = Math.floor(1000 + Math.random() * 9000);
+    const reportId = `local-report-${Date.now()}-${nonce}`;
+    const reportNumber = `LOCAL-${now.toISOString().slice(0, 10)}-${nonce}`;
+    const categoryLabel = WORKER_REPORT_CATEGORIES.find(item => item.id === category)?.title || category;
+    const workerRole = user.role === 'worker' ? 'Worker'
+      : user.role === 'manager' ? 'Manager'
+      : user.role === 'owner' ? 'Owner'
+      : user.role === 'viewer' ? 'Viewer'
+      : 'Unknown';
 
-    // Genuine authenticated worker attribution (no fabricated default fallback)
-    const workerId = user.userId;
-    const workerName = user.name;
-    // BATCH 13B.3.1: Do not invent occupational job titles
-    const workerRole = user.role === 'worker' 
-      ? 'Worker' 
-      : user.role === 'manager' 
-      ? 'Manager' 
-      : user.role === 'owner'
-      ? 'Owner'
-      : user.role === 'viewer'
-      ? 'Viewer'
-      : 'Worker';
-
-    // Step 1: Initialize in 'saved_locally' state
-    const initialReport: WorkerReportItem = {
+    const baseReport: WorkerReportItem = {
       id: reportId,
       reportNumber,
       category,
       status: 'saved_locally',
       createdAt: now.toISOString(),
-      timestampFormatted: `Today at ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      workerId,
-      workerName,
+      timestampFormatted: now.toLocaleString(),
+      workerId: user.userId,
+      workerName: user.name,
       workerRole,
       categoryLabel,
       summary,
@@ -241,316 +234,184 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
       syncAttempts: 0
     };
 
-    // Client-side validation: must NOT be called a Chief rejection
-    const localValError = getClientValidationError(category, data, isDev);
-    if (localValError) {
-      const rejectedReport: WorkerReportItem = {
-        ...initialReport,
+    if (validationError) {
+      const invalidReport: WorkerReportItem = {
+        ...baseReport,
         status: 'rejected_needs_correction',
         errorOrigin: 'client',
-        rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${localValError}`
+        rejectionReason: `Input needs correction — validated locally. No Chief decision has been made: ${validationError}`
       };
-      setLastSubmittedReport(rejectedReport);
-      return { success: false, report: rejectedReport };
+      setLastSubmittedReport(invalidReport);
+      return { success: false, report: invalidReport };
     }
 
-    // REQUIREMENT 5: Durable IndexedDB write MUST succeed before claiming saved_locally
-    const saveRes = await reportStorage.save(initialReport, user.userId);
-    if (!saveRes.success) {
-      throw new Error(`Report could not be stored on this device. No Chief submission or decision occurred.`);
-    }
+    await persistOrThrow(baseReport, user.userId, 'Report could not be stored on this device.');
+    setReports(previous => [baseReport, ...previous]);
+    setLastSubmittedReport(baseReport);
 
-    // Only after successful durable persistence may UI/state claim saved_locally:
-    setReports(prev => [initialReport, ...prev]);
-    setLastSubmittedReport(initialReport);
-
-    // Step 2: Check connectivity. If offline, transition directly to 'queued'
-    const isNetworkOffline = !navigator.onLine || chiefState.connectivity === 'offline';
-    if (isNetworkOffline) {
-      const queuedReport: WorkerReportItem = {
-        ...initialReport,
-        status: 'queued',
-        isQueuedOffline: true
-      };
-      const queuedSaveRes = await reportStorage.save(queuedReport, user.userId);
-      if (!queuedSaveRes.success) {
-        throw new Error(`Report could not be stored on this device. No Chief submission or decision occurred.`);
-      }
-      setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
+    const offline = !navigator.onLine || chiefState.connectivity === 'offline';
+    if (offline) {
+      const queuedReport: WorkerReportItem = { ...baseReport, status: 'queued', isQueuedOffline: true };
+      await persistOrThrow(queuedReport, user.userId, 'Report could not be queued on this device.');
+      setReports(previous => previous.map(report => report.id === reportId ? queuedReport : report));
       setLastSubmittedReport(queuedReport);
       return { success: true, report: queuedReport };
     }
 
-    // Step 3: Online submission — transition to 'syncing'
-    const syncingReport: WorkerReportItem = {
-      ...initialReport,
-      status: 'syncing',
-      syncAttempts: 1
-    };
-    await reportStorage.save(syncingReport, user.userId);
-    setReports(prev => prev.map(r => r.id === reportId ? syncingReport : r));
+    const syncingReport: WorkerReportItem = { ...baseReport, status: 'syncing', syncAttempts: 1 };
+    await persistOrThrow(syncingReport, user.userId, 'Report synchronization state could not be stored.');
+    setReports(previous => previous.map(report => report.id === reportId ? syncingReport : report));
     setLastSubmittedReport(syncingReport);
 
     try {
-      // Backend authority call via Chief API adapter
-      const res = await chiefApi.farm.submitWorkerReport(syncingReport);
-
-      // Validate positive backend acceptance
-      if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
-        throw new ChiefApiError({
-          message: 'Backend response missing valid acceptance proof',
-          code: 'UNCONFIRMED_REPORT'
-        });
+      const response = await chiefApi.farm.submitWorkerReport(syncingReport);
+      if (!response?.data || response.data.status !== 'accepted' || !response.data.verificationHash) {
+        throw new ChiefApiError({ message: 'Backend response missing positive acceptance proof', code: 'UNCONFIRMED_REPORT' });
       }
 
-      // Backend confirmed: Seal accepted_by_chief ONLY on real response
       const acceptedReport: WorkerReportItem = {
         ...syncingReport,
         status: 'accepted_by_chief',
-        backendConfirmationHash: res.data.verificationHash,
-        correlationId: res.correlationId,
-        backendConfirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
+        backendConfirmationHash: response.data.verificationHash,
+        correlationId: response.correlationId,
+        backendConfirmedAt: new Date().toISOString(),
         isQueuedOffline: false
       };
-      await reportStorage.save(acceptedReport, user.userId);
-      setReports(prev => prev.map(r => r.id === reportId ? acceptedReport : r));
+      await persistOrThrow(acceptedReport, user.userId, 'Chief accepted the report, but the confirmation could not be stored locally.');
+      setReports(previous => previous.map(report => report.id === reportId ? acceptedReport : report));
       setLastSubmittedReport(acceptedReport);
       return { success: true, report: acceptedReport };
     } catch (err: unknown) {
-      // Check for client-side validation error
       if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
-        const clientValReport: WorkerReportItem = {
+        const invalidReport: WorkerReportItem = {
           ...syncingReport,
           status: 'rejected_needs_correction',
           errorOrigin: 'client',
-          rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}`
+          rejectionReason: `Input needs correction — validated locally. No Chief decision has been made: ${err.message}`
         };
-        await reportStorage.save(clientValReport, user.userId);
-        setReports(prev => prev.map(r => r.id === reportId ? clientValReport : r));
-        setLastSubmittedReport(clientValReport);
-        return { success: false, report: clientValReport };
+        await persistOrThrow(invalidReport, user.userId, 'Client validation state could not be stored.');
+        setReports(previous => previous.map(report => report.id === reportId ? invalidReport : report));
+        setLastSubmittedReport(invalidReport);
+        return { success: false, report: invalidReport };
       }
 
       if (isExplicitChiefRejection(err)) {
-        // Only explicit Chief validation or policy rejection produces rejected_needs_correction with chief origin
-        const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
         const rejectedReport: WorkerReportItem = {
           ...syncingReport,
           status: 'rejected_needs_correction',
           errorOrigin: 'chief',
-          rejectionReason: `Rejected by Chief: ${errorMsg}`
+          rejectionReason: `Rejected by Chief: ${err.message}`
         };
-        await reportStorage.save(rejectedReport, user.userId);
-        setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
+        await persistOrThrow(rejectedReport, user.userId, 'Chief rejection state could not be stored locally.');
+        setReports(previous => previous.map(report => report.id === reportId ? rejectedReport : report));
         setLastSubmittedReport(rejectedReport);
         return { success: false, report: rejectedReport };
       }
 
-      // Unknown errors, generic JS errors, HTTP 5xx, 401, 403, 404, network drops, malformed responses
-      // MUST NOT imply an authoritative Chief rejection: keep/revert report to queued
       const queuedReport: WorkerReportItem = {
         ...syncingReport,
         status: 'queued',
         isQueuedOffline: true,
-        rejectionReason: undefined
+        rejectionReason: undefined,
+        errorOrigin: undefined
       };
-      await reportStorage.save(queuedReport, user.userId);
-      setReports(prev => prev.map(r => r.id === reportId ? queuedReport : r));
+      await persistOrThrow(queuedReport, user.userId, 'Report could not be queued on this device.');
+      setReports(previous => previous.map(report => report.id === reportId ? queuedReport : report));
       setLastSubmittedReport(queuedReport);
       return { success: true, report: queuedReport };
     }
-  }, [user, chiefState.connectivity]);
+  }, [user, chiefState.connectivity, isDev]);
 
-  // Retry an individual report
   const retryReport = useCallback(async (id: string): Promise<boolean> => {
-    const target = reports.find(r => r.id === id);
+    if (!user?.userId || !navigator.onLine || chiefState.connectivity === 'offline') return false;
+    const target = reports.find(report => report.id === id);
     if (!target) return false;
 
-    // Check connectivity
-    if (!navigator.onLine || chiefState.connectivity === 'offline') {
-      return false;
-    }
-
-    // Set to syncing
-    setReports(prev => prev.map(r => 
-      r.id === id 
-        ? { ...r, status: 'syncing', syncAttempts: (r.syncAttempts || 0) + 1, rejectionReason: undefined } 
-        : r
-    ));
-
+    const syncing = { ...target, status: 'syncing' as const, syncAttempts: (target.syncAttempts || 0) + 1, rejectionReason: undefined };
     try {
-      const res = await chiefApi.farm.submitWorkerReport(target);
-
-      // Validate positive backend acceptance
-      if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
-        throw new ChiefApiError({
-          message: 'Backend response missing valid acceptance proof',
-          code: 'UNCONFIRMED_REPORT'
-        });
+      await persistOrThrow(syncing, user.userId, 'Retry state could not be stored.');
+      setReports(previous => previous.map(report => report.id === id ? syncing : report));
+      const response = await chiefApi.farm.submitWorkerReport(syncing);
+      if (!response?.data || response.data.status !== 'accepted' || !response.data.verificationHash) {
+        throw new ChiefApiError({ message: 'Backend response missing positive acceptance proof', code: 'UNCONFIRMED_REPORT' });
       }
-
-      setReports(prev => prev.map(r => 
-        r.id === id 
-          ? { 
-              ...r, 
-              status: 'accepted_by_chief', 
-              backendConfirmationHash: res.data.verificationHash,
-              correlationId: res.correlationId,
-              backendConfirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
-              isQueuedOffline: false,
-              rejectionReason: undefined
-            } 
-          : r
-      ));
+      const accepted: WorkerReportItem = {
+        ...syncing,
+        status: 'accepted_by_chief',
+        backendConfirmationHash: response.data.verificationHash,
+        correlationId: response.correlationId,
+        backendConfirmedAt: new Date().toISOString(),
+        isQueuedOffline: false
+      };
+      await persistOrThrow(accepted, user.userId, 'Accepted retry confirmation could not be stored.');
+      setReports(previous => previous.map(report => report.id === id ? accepted : report));
       return true;
     } catch (err: unknown) {
+      let next: WorkerReportItem;
       if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
-        setReports(prev => prev.map(r => 
-          r.id === id 
-            ? { 
-                ...r, 
-                status: 'rejected_needs_correction', 
-                errorOrigin: 'client', 
-                rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}` 
-              } 
-            : r
-        ));
-        return false;
+        next = { ...target, status: 'rejected_needs_correction', errorOrigin: 'client', rejectionReason: `Input needs correction — validated locally. No Chief decision has been made: ${err.message}` };
+      } else if (isExplicitChiefRejection(err)) {
+        next = { ...target, status: 'rejected_needs_correction', errorOrigin: 'chief', rejectionReason: `Rejected by Chief: ${err.message}` };
+      } else {
+        next = { ...target, status: 'queued', isQueuedOffline: true, syncAttempts: (target.syncAttempts || 0) + 1, rejectionReason: undefined, errorOrigin: undefined };
       }
-
-      if (isExplicitChiefRejection(err)) {
-        const errorMsg = err.message || 'Report rejected by Chief Policy Engine.';
-        setReports(prev => prev.map(r => 
-          r.id === id 
-            ? { ...r, status: 'rejected_needs_correction', errorOrigin: 'chief', rejectionReason: `Rejected by Chief: ${errorMsg}` } 
-            : r
-        ));
-        return false;
-      }
-
-      // Non-rejection error: remain queued without false rejection
-      setReports(prev => prev.map(r => 
-        r.id === id 
-          ? { ...r, status: 'queued', isQueuedOffline: true, rejectionReason: undefined } 
-          : r
-      ));
+      const persisted = await reportStorage.save(next, user.userId);
+      if (persisted.success) setReports(previous => previous.map(report => report.id === id ? next : report));
       return false;
     }
-  }, [reports, chiefState.connectivity]);
+  }, [reports, chiefState.connectivity, user?.userId]);
 
-  // Flush all queued reports
   const syncQueuedReports = useCallback(async (): Promise<{ syncedCount: number; failedCount: number }> => {
-    const queuedItems = reports.filter(r => r.status === 'queued');
-    if (queuedItems.length === 0) return { syncedCount: 0, failedCount: 0 };
-
-    if (!navigator.onLine || chiefState.connectivity === 'offline') {
-      return { syncedCount: 0, failedCount: queuedItems.length };
-    }
+    if (!user?.userId) return { syncedCount: 0, failedCount: queuedCount };
+    const queued = reports.filter(report => report.status === 'queued');
+    if (!navigator.onLine || chiefState.connectivity === 'offline') return { syncedCount: 0, failedCount: queued.length };
 
     setIsSyncingQueue(true);
-    let synced = 0;
-    let failed = 0;
-
-    for (const item of queuedItems) {
-      try {
-        setReports(prev => prev.map(r => r.id === item.id ? { ...r, status: 'syncing' } : r));
-        const res = await chiefApi.farm.submitWorkerReport(item);
-
-        // Validate positive backend acceptance
-        if (!res || !res.data || res.data.status !== 'accepted' || !res.data.verificationHash) {
-          throw new ChiefApiError({
-            message: 'Backend response missing valid acceptance proof',
-            code: 'UNCONFIRMED_REPORT'
-          });
-        }
-
-        setReports(prev => prev.map(r => 
-          r.id === item.id 
-            ? { 
-                ...r, 
-                status: 'accepted_by_chief', 
-                backendConfirmationHash: res.data.verificationHash,
-                correlationId: res.correlationId,
-                backendConfirmedAt: `Today at ${new Date().toLocaleTimeString()}`,
-                isQueuedOffline: false 
-              } 
-            : r
-        ));
-        synced++;
-      } catch (err: unknown) {
-        failed++;
-        if (err instanceof ChiefApiError && (err.origin === 'client' || err.code === 'CLIENT_VALIDATION_ERROR')) {
-          setReports(prev => prev.map(r => 
-            r.id === item.id 
-              ? { 
-                  ...r, 
-                  status: 'rejected_needs_correction', 
-                  errorOrigin: 'client', 
-                  syncAttempts: (r.syncAttempts || 0) + 1, 
-                  rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${err.message}` 
-                } 
-              : r
-          ));
-        } else if (isExplicitChiefRejection(err)) {
-          // Explicit Chief rejection
-          const errorMsg = err.message || 'Sync rejected by Chief';
-          setReports(prev => prev.map(r => 
-            r.id === item.id 
-              ? { 
-                  ...r, 
-                  status: 'rejected_needs_correction', 
-                  errorOrigin: 'chief', 
-                  syncAttempts: (r.syncAttempts || 0) + 1, 
-                  rejectionReason: `Rejected by Chief: ${errorMsg}` 
-                } 
-              : r
-          ));
-        } else {
-          // Non-rejection (network, timeout, 5xx, auth, unknown) -> keep queued
-          setReports(prev => prev.map(r => 
-            r.id === item.id 
-              ? { ...r, status: 'queued', syncAttempts: (r.syncAttempts || 0) + 1, isQueuedOffline: true, rejectionReason: undefined } 
-              : r
-          ));
-        }
+    let syncedCount = 0;
+    let failedCount = 0;
+    try {
+      for (const report of queued) {
+        const ok = await retryReport(report.id);
+        if (ok) syncedCount += 1;
+        else failedCount += 1;
       }
+    } finally {
+      setIsSyncingQueue(false);
     }
+    return { syncedCount, failedCount };
+  }, [reports, queuedCount, chiefState.connectivity, retryReport, user?.userId]);
 
-    setIsSyncingQueue(false);
-    return { syncedCount: synced, failedCount: failed };
-  }, [reports, chiefState.connectivity]);
-
-  // Auto-sync when network or connectivity changes to online
   useEffect(() => {
     if (navigator.onLine && chiefState.connectivity === 'online' && queuedCount > 0 && !isSyncingQueue) {
-      // Trigger background flush
-      syncQueuedReports();
+      void syncQueuedReports();
     }
   }, [chiefState.connectivity, queuedCount, isSyncingQueue, syncQueuedReports]);
 
-  const deleteReport = async (id: string) => {
-    await reportStorage.delete(id, user?.userId ?? null);
-    setReports(prev => prev.filter(r => r.id !== id));
-  };
+  const deleteReport = useCallback(async (id: string): Promise<void> => {
+    if (!user?.userId) return;
+    const deleted = await reportStorage.delete(id, user.userId);
+    if (deleted) setReports(previous => previous.filter(report => report.id !== id));
+  }, [user?.userId]);
 
-  const clearResolvedReports = () => {
-    setReports(prev => prev.filter(r => r.status !== 'accepted_by_chief'));
-  };
+  const clearResolvedReports = useCallback(async (): Promise<void> => {
+    if (!user?.userId) return;
+    const acceptedIds = reports.filter(report => report.status === 'accepted_by_chief').map(report => report.id);
+    for (const id of acceptedIds) await reportStorage.delete(id, user.userId);
+    setReports(previous => previous.filter(report => report.status !== 'accepted_by_chief'));
+  }, [reports, user?.userId]);
 
   return (
-    <WorkerReportContext.Provider
-      value={{
-        reports,
-        queuedCount,
-        isSyncingQueue,
-        lastSubmittedReport,
-        submitReport,
-        syncQueuedReports,
-        retryReport,
-        deleteReport,
-        clearResolvedReports
-      }}
-    >
+    <WorkerReportContext.Provider value={{
+      reports,
+      queuedCount,
+      isSyncingQueue,
+      lastSubmittedReport,
+      submitReport,
+      syncQueuedReports,
+      retryReport,
+      deleteReport,
+      clearResolvedReports
+    }}>
       {children}
     </WorkerReportContext.Provider>
   );
@@ -558,8 +419,6 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
 export const useWorkerReports = (): WorkerReportContextType => {
   const context = useContext(WorkerReportContext);
-  if (!context) {
-    throw new Error('useWorkerReports must be used within a WorkerReportProvider');
-  }
+  if (!context) throw new Error('useWorkerReports must be used within a WorkerReportProvider');
   return context;
 };
