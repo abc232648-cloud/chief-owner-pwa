@@ -17,6 +17,7 @@ const files = {
   migrations: read('src/storage/migrations.ts'),
   readCache: read('src/api/cache/readCache.ts'),
   apiClient: read('src/api/client.ts'),
+  chiefContext: read('src/context/ChiefContext.tsx'),
   workerReports: read('src/context/WorkerReportContext.tsx'),
   offlineQueue: read('src/context/OfflineQueueContext.tsx'),
   chiefStatus: read('src/components/ChiefStatusCard.tsx'),
@@ -86,6 +87,23 @@ test('API mutations are non-idempotent and cannot be automatically retried', () 
   assert.match(files.apiClient, /post<[\s\S]*?isIdempotent:\s*false/);
   assert.match(files.apiClient, /put<[\s\S]*?isIdempotent:\s*false/);
   assert.match(files.apiClient, /delete<[\s\S]*?isIdempotent:\s*false/);
+});
+
+test('Chief simulation provenance is never represented as synchronized', () => {
+  assert.match(files.chiefContext, /function synchronizationFor/);
+  assert.match(files.chiefContext, /Development fixtures are deliberately not considered synchronized Chief state/);
+  assert.doesNotMatch(files.chiefContext, /compositeProvenance === ['"]mock_isolated['"]\) return ['"]current['"]/);
+  assert.match(files.chiefContext, /SIMULATED — development data; not synchronized with Chief/);
+});
+
+test('attention mutations never manufacture local audit hashes, identities or policy evidence', () => {
+  assert.doesNotMatch(files.chiefContext, /sha256:\$\{Math\.random/);
+  assert.doesNotMatch(files.chiefContext, /Elena Vance \(Owner\)/);
+  assert.doesNotMatch(files.chiefContext, /RBAC-APPROVED-HUMAN|RBAC-REJECTED-HUMAN|SAFETY-INTERLOCK-STOP-ACKNOWLEDGED/);
+  assert.match(files.chiefContext, /Deliberately do not append a local ActivityEvent/);
+  assert.match(files.chiefContext, /response\.data\?\.approved !== true \|\| !response\.data\.recordId/);
+  assert.match(files.chiefContext, /response\.data\?\.rejected !== true \|\| !response\.data\.recordId/);
+  assert.match(files.chiefContext, /response\.data\?\.acknowledged !== true \|\| !response\.data\.ticketId/);
 });
 
 test('worker reports strip inferred authority fields before persistence or submission', () => {
