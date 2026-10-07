@@ -142,6 +142,19 @@ export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
     { id: 'history', label: 'History' }
   ];
 
+  const getPolicyAuthorityWording = () => {
+    if (isDevMode && (operatingMode === 'SIMULATION' || devModeOverride === 'SIMULATION')) {
+      return 'Development simulation — not live Chief authority';
+    }
+    if (operatingMode === 'LIVE') {
+      return 'Chief policy authority verified';
+    }
+    if (operatingMode === 'CACHED' || operatingMode === 'STALE') {
+      return 'Cached Chief state — policy authority not currently reverified';
+    }
+    return 'Policy authority unavailable';
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#021209]/85 backdrop-blur-sm animate-fadeIn">
       <div 
@@ -165,7 +178,7 @@ export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
                 {renderOperatingModeBadge()}
               </div>
               <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
-                Poultry-First Farm Subsystem • Central Policy Enforced
+                Poultry-First Farm Subsystem • {getPolicyAuthorityWording()}
               </p>
             </div>
           </div>
@@ -541,7 +554,7 @@ export const FarmAgentModal: React.FC<FarmAgentModalProps> = ({
                 <span className="text-emerald-400 uppercase tracking-wider font-semibold">
                   Authoritative Operational Tasks ({isDevMode ? INITIAL_FARM_TASKS.length : 0})
                 </span>
-                <span className="text-emerald-400/60 text-[11px]">Enforced under safety invariants</span>
+                <span className="text-emerald-400/60 text-[11px]">{getPolicyAuthorityWording()}</span>
               </div>
               {!isDevMode ? (
                 <div className="p-8 text-center bg-[#03140c] rounded-xl border border-emerald-950 text-emerald-400/60 space-y-2 font-mono">

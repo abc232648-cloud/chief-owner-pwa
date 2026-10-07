@@ -51,6 +51,67 @@ function isExplicitChiefRejection(err: unknown): err is ChiefApiError {
   );
 }
 
+/**
+ * BATCH 13B.3.1.1: Local client-side validation for empty/required fields.
+ * Must NEVER be called a Chief rejection.
+ */
+function getClientValidationError(category: WorkerReportCategory, data: Record<string, any>, isDev: boolean): string | null {
+  switch (category) {
+    case 'mortality':
+      if (!data.houseNumber) return 'Flock housing unit must be selected.';
+      if (data.mortalityCount === undefined || data.mortalityCount === null || data.mortalityCount < 0) return 'Mortality count cannot be empty or negative.';
+      if (!data.suspectedCause) return 'Suspected cause of mortality must be selected.';
+      if (!data.disposalMethod) return 'Biosecure disposal method must be selected.';
+      return null;
+    case 'feed':
+      if (!data.siloId && !data.houseNumber) return 'Feed silo and barn must be selected.';
+      if (data.binLevelPct === undefined || data.binLevelPct === null) return 'Silo level estimate must be selected.';
+      if (!data.feedCondition) return 'Physical condition of feed must be selected.';
+      if (data.feederLinesOperational === undefined || data.feederLinesOperational === null) return 'Feeder lines operational status must be selected.';
+      return null;
+    case 'water':
+      if (!data.houseNumber) return 'Barn location must be selected.';
+      if (data.meterReadingLiters === undefined || data.meterReadingLiters === null || data.meterReadingLiters < 0) return 'Header meter reading (liters) cannot be empty.';
+      if (data.pressureGaugeReadingPsi === undefined || data.pressureGaugeReadingPsi === null || data.pressureGaugeReadingPsi < 0) return 'Line column pressure (PSI) cannot be empty.';
+      if (!data.drinkerStatus) return 'Nipple drinker line inspection status must be selected.';
+      return null;
+    case 'egg_production':
+      if (!data.houseNumber) return 'Housing unit must be selected.';
+      if (!data.shift) return 'Collection shift must be selected.';
+      if (data.traysCollected === undefined || data.traysCollected === null || data.traysCollected < 0) return 'Trays collected count cannot be empty.';
+      return null;
+    case 'flock_observation':
+      if (!data.houseNumber) return 'Housing unit must be selected.';
+      if (!data.activityLevel) return 'Bird activity & spacing must be selected.';
+      if (!data.droppingsCondition) return 'Droppings / fecal appearance must be selected.';
+      if (!data.litterMoistureCondition) return 'Litter moisture condition must be selected.';
+      return null;
+    case 'equipment_fault':
+      if (!data.urgency) return 'Urgency / severity level must be selected.';
+      if (!data.faultType) return 'Fault type must be selected.';
+      if (!data.description || String(data.description).trim().length < 3) return 'Fault description details cannot be empty.';
+      return null;
+    case 'task_completion':
+      if (!isDev) return 'No authoritative Farm tasks available.';
+      if (!data.taskId) return 'Assigned field task must be selected.';
+      if (!data.completionMinutes || data.completionMinutes <= 0) return 'Time spent (minutes) must be greater than zero.';
+      return null;
+    case 'environmental_issue':
+      if (!data.houseNumber) return 'Housing unit must be selected.';
+      if (data.temperatureC === undefined || data.temperatureC === null) return 'House ambient temperature (°C) cannot be empty.';
+      if (data.relativeHumidityPct === undefined || data.relativeHumidityPct === null) return 'Relative humidity (%) cannot be empty.';
+      if (!data.ammoniaRating) return 'Ammonia (NH3) odor rating must be selected.';
+      return null;
+    case 'emergency':
+      if (!data.emergencyType) return 'Emergency category must be selected.';
+      if (!data.immediateActionTaken || String(data.immediateActionTaken).trim().length < 5) return 'Emergency broadcast requires documented immediate containment action taken (at least 5 characters).';
+      return null;
+    case 'photo_evidence':
+      if (!isDev) return 'Photo evidence requires camera/file upload capability. Synthetic evidence photos are disabled in production.';
+      return null;
+  }
+}
+
 interface WorkerReportContextType {
   reports: WorkerReportItem[];
   queuedCount: number;
@@ -166,24 +227,13 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setLastSubmittedReport(initialReport);
 
     // Client-side validation: must NOT be called a Chief rejection
-    if (category === 'mortality' && (data.mortalityCount < 0 || data.mortalityCount === undefined)) {
+    const localValError = getClientValidationError(category, data, isDev);
+    if (localValError) {
       const rejectedReport: WorkerReportItem = {
         ...initialReport,
         status: 'rejected_needs_correction',
         errorOrigin: 'client',
-        rejectionReason: 'Input needs correction — Validated locally. No Chief decision has been made: Mortality count cannot be empty or negative.'
-      };
-      setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
-      setLastSubmittedReport(rejectedReport);
-      return { success: false, report: rejectedReport };
-    }
-
-    if (category === 'emergency' && (!data.immediateActionTaken || String(data.immediateActionTaken).trim().length < 5)) {
-      const rejectedReport: WorkerReportItem = {
-        ...initialReport,
-        status: 'rejected_needs_correction',
-        errorOrigin: 'client',
-        rejectionReason: 'Input needs correction — Validated locally. No Chief decision has been made: Emergency broadcast requires documented immediate containment action taken.'
+        rejectionReason: `Input needs correction — Validated locally. No Chief decision has been made: ${localValError}`
       };
       setReports(prev => prev.map(r => r.id === reportId ? rejectedReport : r));
       setLastSubmittedReport(rejectedReport);

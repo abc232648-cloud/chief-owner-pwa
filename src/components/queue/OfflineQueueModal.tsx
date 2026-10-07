@@ -36,6 +36,8 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
     conflictCount, 
     isSyncing, 
     isEffectivelyOffline, 
+    lastSyncTimestamp,
+    syncState,
     isDataStale,
     syncQueueItem, 
     syncAllEligible, 
@@ -148,7 +150,9 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-emerald-400/80 font-mono mt-0.5">
-                Authoritative local cache with cryptographic audit reconciliation
+                {lastSyncTimestamp 
+                  ? `Authoritative local cache • Last sync: ${new Date(lastSyncTimestamp).toLocaleTimeString()}`
+                  : 'Authoritative local cache • Never synchronized (No authoritative synchronization recorded)'}
               </p>
             </div>
           </div>
@@ -209,6 +213,21 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
             )}
           </div>
         </div>
+
+        {/* Never Synchronized Notice (BATCH 13B.3.1.1 Requirement 6) */}
+        {syncState === 'NEVER_SYNCED' && !isDevMode && (
+          <div className="px-4 sm:px-6 py-2 bg-[#021008] border-b border-emerald-950/80 flex items-center justify-between gap-2 text-[11px] font-mono text-emerald-400/80">
+            <div className="flex items-center gap-2">
+              <Clock className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <span>
+                <strong>SYNCHRONIZATION STATUS:</strong> Never synchronized. No authoritative synchronization recorded.
+              </span>
+            </div>
+            <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+              NOT SYNCHRONIZED
+            </span>
+          </div>
+        )}
 
         {/* 3. Stale-Data Indication Bar */}
         {isDataStale && (

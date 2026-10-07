@@ -187,7 +187,9 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-emerald-300/60 mt-0.5 font-mono">
-                Applicant Truth Store Invariant Enforced • No Fabricated Credentials
+                {isDevMode 
+                  ? 'Development Truth-Store Fixture — Not User Data' 
+                  : 'Applicant Truth Store not connected • No authoritative candidate profile available'}
               </p>
             </div>
           </div>
@@ -461,7 +463,9 @@ export const JobAgentModal: React.FC<JobAgentModalProps> = ({
                       {opp.strongestMatches.length > 0 && (
                         <div className="space-y-1 text-xs">
                           <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-semibold block">
-                            Verified Strongest Matches (Applicant Truth Store):
+                            {isDevMode 
+                              ? 'Development Truth-Store Fixture Matches:' 
+                              : 'Candidate Profile Matches:'}
                           </span>
                           <div className="flex flex-wrap gap-1 font-mono text-[11px]">
                             {opp.strongestMatches.map((m, idx) => (

@@ -31,7 +31,8 @@ interface OfflineQueueContextType {
   pendingCount: number;
   conflictCount: number;
   isSyncing: boolean;
-  lastSyncTimestamp: number;
+  lastSyncTimestamp: number | null;
+  syncState: 'NEVER_SYNCED' | 'STALE' | 'CURRENT';
   isDataStale: boolean;
   isEffectivelyOffline: boolean;
   enqueueAction: (options: EnqueueOptions) => { success: boolean; item?: QueueItem; error?: string };
@@ -71,7 +72,10 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number>(Date.now() - 1000 * 60 * 12);
+  // BATCH 13B.3.1.1 Requirement 6: Fresh production install must have lastSyncTimestamp = null (Never synchronized)
+  const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number | null>(() => {
+    return isDev ? Date.now() - 1000 * 60 * 12 : null;
+  });
   const [networkOnline, setNetworkOnline] = useState<boolean>(navigator.onLine);
 
   // Sync to localStorage using environment-specific key
@@ -99,16 +103,28 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   const isEffectivelyOffline = !networkOnline || chiefState.connectivity === 'offline';
-  const isDataStale = isEffectivelyOffline || (Date.now() - lastSyncTimestamp > 1000 * 60 * 5);
+  
+  // BATCH 13B.3.1.1 Requirement 7: Distinguish NEVER_SYNCED from STALE CACHE
+  // - no cache + no prior sync -> NEVER_SYNCED (not stale)
+  // - genuine cached data older than threshold -> STALE
+  // - live/current -> CURRENT
+  const syncState: 'NEVER_SYNCED' | 'STALE' | 'CURRENT' = 
+    lastSyncTimestamp === null
+      ? 'NEVER_SYNCED'
+      : (Date.now() - lastSyncTimestamp > 1000 * 60 * 5)
+      ? 'STALE'
+      : 'CURRENT';
+
+  const isDataStale = syncState === 'STALE';
 
   const pendingCount = queue.filter(q => q.status === 'pending' || q.status === 'failed_transient').length;
   const conflictCount = queue.filter(q => q.status === 'conflict').length;
 
-  // BATCH 13B.3.1 Requirement 2: Remove fake cached data sources from production
+  // BATCH 13B.3.1 Requirement 2 & BATCH 13B.3.1.1 Requirement 6: Remove fake cached data sources from production
   // Production cachedDataSources must reflect only genuine cached Chief resources.
   // If none exist: cachedDataSources = []
   // DEV: Synthetic cached-source examples clearly labelled DEVELOPMENT CACHE FIXTURE — NOT REAL TELEMETRY
-  const cachedDataSources: CachedDataSource[] = isDev ? [
+  const cachedDataSources: CachedDataSource[] = (isDev && lastSyncTimestamp !== null) ? [
     {
       key: 'flock_telemetry',
       label: 'House 1 & 2 Poultry Telemetry [DEV FIXTURE]',
@@ -437,6 +453,7 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
         conflictCount,
         isSyncing,
         lastSyncTimestamp,
+        syncState,
         isDataStale,
         isEffectivelyOffline,
         enqueueAction,
