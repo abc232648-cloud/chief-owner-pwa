@@ -28,7 +28,7 @@ export class FarmApiAdapter implements IFarmContract {
     timestamp: string;
     transactionId: string;
   }>> {
-    // Structural client-side validation rules enforced before acceptance
+    // Structural client-side validation only. These checks never create Chief decisions.
     if (report.category === 'mortality') {
       const count = Number(report.data.mortalityCount || 0);
       if (count < 0) {
@@ -41,7 +41,7 @@ export class FarmApiAdapter implements IFarmContract {
       }
       if (count > 5000) {
         throw new ChiefApiError({
-          message: 'Mortality count exceeds single-house emergency threshold. Immediate supervisor STOP required.',
+          message: 'Mortality count exceeds the client sanity threshold and requires live Chief/supervisor review. No STOP decision was made by this client.',
           code: 'CLIENT_VALIDATION_ERROR',
           origin: 'client',
           statusCode: 422
@@ -60,7 +60,7 @@ export class FarmApiAdapter implements IFarmContract {
       }
     }
 
-    // Fail-closed: Only genuine successful backend response may represent acceptance
+    // Fail closed: only a genuine successful Chief backend response may represent acceptance.
     return await this.client.post('/farm/worker-reports', report, { signal });
   }
 }
