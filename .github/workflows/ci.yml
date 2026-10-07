@@ -6,14 +6,13 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same branch/PR to optimize runner resources
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-verify:
-    name: Build & Verify (Node 24 LTS)
+    name: Build, Safety & Release Verify (Node 24 LTS)
     runs-on: ubuntu-latest
 
     steps:
@@ -32,11 +31,23 @@ jobs:
       - name: Deterministic dependency install (npm ci)
         run: npm ci
 
+      - name: High-severity dependency audit
+        run: npm audit --audit-level=high
+
       - name: PWA static-asset integrity validation
         run: npm run check:pwa
 
-      - name: Strict TypeScript typecheck
+      - name: Source safety lint
+        run: npm run lint
+
+      - name: TypeScript typecheck
         run: npm run typecheck
+
+      - name: Safety invariant tests
+        run: npm test
 
       - name: Production Vite build
         run: npm run build
+
+      - name: Production release smoke check
+        run: npm run check:release
