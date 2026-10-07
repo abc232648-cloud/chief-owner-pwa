@@ -7,13 +7,16 @@ import { defineConfig } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'geolocation=(), microphone=(), payment=(), camera=(self)'
+};
+
 export default defineConfig(() => {
-  // Compatibility isolation:
-  // In standard development (local dev, CI, staging), standard Vite behavior is default:
-  // HMR is active and file watching is fully enabled.
-  // Only when running inside the Google AI Studio development container (where DISABLE_HMR=true
-  // is passed by the web environment runner to save CPU during rapid agent file updates),
-  // file watching and HMR are throttled.
+  // Google AI Studio remains a construction environment only. This switch changes
+  // development file-watching behavior; it does not enable Chief DEV identities or data.
   const isAiStudioDevContainer = process.env.DISABLE_HMR === 'true';
 
   return {
@@ -28,7 +31,12 @@ export default defineConfig(() => {
       host: '0.0.0.0',
       hmr: !isAiStudioDevContainer,
       watch: isAiStudioDevContainer ? null : {},
+      headers: securityHeaders,
+    },
+    preview: {
+      host: '127.0.0.1',
+      port: 4173,
+      headers: securityHeaders,
     },
   };
 });
-
