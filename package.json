@@ -15,7 +15,8 @@
     "check:secrets": "bash scripts/check-secrets.sh",
     "check:pwa": "bash scripts/check-pwa-assets.sh",
     "check:release": "node scripts/release-smoke.mjs",
-    "check": "npm run check:secrets && npm run check:pwa && npm run lint && npm run typecheck && npm test && npm run build && npm run check:release"
+    "check:preview": "bash scripts/preview-smoke.sh",
+    "check": "npm run check:secrets && npm run check:pwa && npm run lint && npm run typecheck && npm test && npm run build && npm run check:release && npm run check:preview"
   },
   "dependencies": {
     "lucide-react": "^0.546.0",
