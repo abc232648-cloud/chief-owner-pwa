@@ -51,3 +51,6 @@ jobs:
 
       - name: Production release smoke check
         run: npm run check:release
+
+      - name: Built preview HTTP smoke check
+        run: npm run check:preview
