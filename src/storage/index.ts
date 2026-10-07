@@ -1,29 +1,32 @@
 /**
  * CHIEF Versioned Client Storage Layer
- * 
+ *
  * Centralized, typed, privacy-preserving persistence for offline queues
  * and worker reports, with compound primary keys and strict user isolation.
+ *
+ * BATCH 13C.2A.2 SAFETY REPAIR:
+ * - Background saveAll() is allowed only after that exact environment/user namespace
+ *   has been successfully loaded in the current runtime.
+ * - Production records are additionally ownership-checked before any write.
+ * - This storage-level gate prevents stale React state from User A being written
+ *   into User B's namespace during authentication/session transitions.
  */
 
 import { QueueItem } from '../types/queue';
 import { WorkerReportItem } from '../types/workerReport';
 import { isChiefDevMode } from '../config/devMode';
-import { 
-  STORAGE_SCHEMA_VERSION, 
-  StorageEnvironment, 
-  STORE_NAMES, 
-  PersistedRecord, 
-  buildStorageNamespace 
+import {
+  STORAGE_SCHEMA_VERSION,
+  StorageEnvironment,
+  STORE_NAMES,
+  PersistedRecord
 } from './schema';
-import { 
-  isIndexedDBAvailable, 
-  idbPut, 
-  idbGet, 
-  idbGetUserRecord,
-  idbGetByUser, 
-  idbDeleteUserRecord, 
-  idbClearUserRecords,
-  idbSyncUserRecords 
+import {
+  isIndexedDBAvailable,
+  idbPut,
+  idbGetByUser,
+  idbDeleteUserRecord,
+  idbSyncUserRecords
 } from './idb';
 import { runClientMigrations } from './migrations';
 import { StoragePrivacyManager } from './privacy';
@@ -33,15 +36,74 @@ export * from './schema';
 export { StoragePrivacyManager } from './privacy';
 export { operationalWorkTracker } from './operationalWorkTracker';
 
+const loadedQueueNamespaces = new Set<string>();
+const loadedReportNamespaces = new Set<string>();
+
 function getActiveEnvironment(): StorageEnvironment {
   return isChiefDevMode() ? 'DEV' : 'PROD';
 }
 
-function resolveUserNamespace(userId: string | null): string {
+function normalizeAuthenticatedUserId(userId: string | null): string | null {
   if (userId && typeof userId === 'string' && userId.trim().length > 0) {
     return userId.trim();
   }
-  return 'unauthenticated';
+  return null;
+}
+
+function resolveUserNamespace(userId: string | null): string {
+  return normalizeAuthenticatedUserId(userId) || 'unauthenticated';
+}
+
+function runtimeNamespaceKey(environment: StorageEnvironment, userNamespace: string): string {
+  return `${environment}:${userNamespace}`;
+}
+
+function queueOwnershipError(
+  environment: StorageEnvironment,
+  items: QueueItem[],
+  userId: string | null
+): string | null {
+  if (environment !== 'PROD' || items.length === 0) {
+    return null;
+  }
+
+  const authenticatedUserId = normalizeAuthenticatedUserId(userId);
+  if (!authenticatedUserId) {
+    return 'Authenticated user namespace required for production queue persistence.';
+  }
+
+  for (const item of items) {
+    const attributedUserId = item.workerAttribution?.userId?.trim();
+    if (!attributedUserId || attributedUserId !== authenticatedUserId) {
+      return `Queue ownership mismatch for record ${item.id}. Persistence blocked.`;
+    }
+  }
+
+  return null;
+}
+
+function reportOwnershipError(
+  environment: StorageEnvironment,
+  reports: WorkerReportItem[],
+  userId: string | null
+): string | null {
+  if (environment !== 'PROD' || reports.length === 0) {
+    return null;
+  }
+
+  const authenticatedUserId = normalizeAuthenticatedUserId(userId);
+  if (!authenticatedUserId) {
+    return 'Authenticated user namespace required for production report persistence.';
+  }
+
+  for (const report of reports) {
+    const reportWorkerId = report.workerId?.trim();
+    if (!reportWorkerId || reportWorkerId !== authenticatedUserId) {
+      return `Report ownership mismatch for record ${report.id}. Persistence blocked.`;
+    }
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,32 +112,45 @@ function resolveUserNamespace(userId: string | null): string {
 export const queueStorage = {
   async getAll(userId: string | null): Promise<QueueItem[]> {
     const env = getActiveEnvironment();
+    const ns = resolveUserNamespace(userId);
+    const namespaceKey = runtimeNamespaceKey(env, ns);
+
+    // Reset the runtime gate before every load attempt. This is intentionally
+    // synchronous so a same-render save effect cannot reuse a previous load marker.
+    loadedQueueNamespaces.delete(namespaceKey);
+
     if (!isIndexedDBAvailable()) {
-      return [];
+      throw new Error('Secure browser database (IndexedDB) is unavailable or disabled in private browsing.');
     }
 
     try {
       await runClientMigrations(env);
-      const ns = resolveUserNamespace(userId);
       const records = await idbGetByUser<PersistedRecord<QueueItem>>(
         env,
         STORE_NAMES.QUEUE,
         ns
       );
+      loadedQueueNamespaces.add(namespaceKey);
       return records.map(r => r.data);
     } catch (err) {
+      loadedQueueNamespaces.delete(namespaceKey);
       console.warn('[Chief Queue Storage] Failed to load queue records:', err);
-      return [];
+      throw err;
     }
   },
 
   async save(item: QueueItem, userId: string | null): Promise<{ success: boolean; error?: string }> {
     const env = getActiveEnvironment();
     if (!isIndexedDBAvailable()) {
-      return { 
-        success: false, 
-        error: 'Secure browser database (IndexedDB) is unavailable or disabled in private browsing.' 
+      return {
+        success: false,
+        error: 'Secure browser database (IndexedDB) is unavailable or disabled in private browsing.'
       };
+    }
+
+    const ownershipError = queueOwnershipError(env, [item], userId);
+    if (ownershipError) {
+      return { success: false, error: ownershipError };
     }
 
     try {
@@ -113,8 +188,24 @@ export const queueStorage = {
   async saveAll(items: QueueItem[], userId: string | null): Promise<void> {
     const env = getActiveEnvironment();
     if (!isIndexedDBAvailable()) return;
+
+    const ns = resolveUserNamespace(userId);
+    const namespaceKey = runtimeNamespaceKey(env, ns);
+
+    // Central race guard: never persist component state into a namespace that
+    // has not completed its own load in this runtime.
+    if (!loadedQueueNamespaces.has(namespaceKey)) {
+      console.warn(`[Chief Queue Storage] Background persistence blocked: namespace ${namespaceKey} is not loaded.`);
+      return;
+    }
+
+    const ownershipError = queueOwnershipError(env, items, userId);
+    if (ownershipError) {
+      console.warn(`[Chief Queue Storage] ${ownershipError}`);
+      return;
+    }
+
     try {
-      const ns = resolveUserNamespace(userId);
       const records: PersistedRecord<QueueItem>[] = items.map(item => ({
         userNamespace: ns,
         id: item.id,
@@ -152,32 +243,46 @@ export const queueStorage = {
 export const reportStorage = {
   async getAll(userId: string | null): Promise<WorkerReportItem[]> {
     const env = getActiveEnvironment();
+    const ns = resolveUserNamespace(userId);
+    const namespaceKey = runtimeNamespaceKey(env, ns);
+
+    loadedReportNamespaces.delete(namespaceKey);
+
     if (!isIndexedDBAvailable()) {
-      return [];
+      throw new Error('Secure browser database (IndexedDB) is unavailable or disabled in private browsing.');
     }
 
     try {
       await runClientMigrations(env);
-      const ns = resolveUserNamespace(userId);
       const records = await idbGetByUser<PersistedRecord<WorkerReportItem>>(
         env,
         STORE_NAMES.REPORTS,
         ns
       );
+      loadedReportNamespaces.add(namespaceKey);
       return records.map(r => r.data);
     } catch (err) {
+      loadedReportNamespaces.delete(namespaceKey);
       console.warn('[Chief Report Storage] Failed to load reports:', err);
-      return [];
+      throw err;
     }
   },
 
+  /**
+   * Critical report writes throw on persistence failure rather than returning a
+   * false-success-shaped value. Existing callers that inspect success continue
+   * to receive { success: true } after a committed transaction; unchecked callers
+   * can no longer continue and claim "queued" after a failed write.
+   */
   async save(report: WorkerReportItem, userId: string | null): Promise<{ success: boolean; error?: string }> {
     const env = getActiveEnvironment();
     if (!isIndexedDBAvailable()) {
-      return { 
-        success: false, 
-        error: 'Secure browser database (IndexedDB) is unavailable or disabled in private browsing.' 
-      };
+      throw new Error('Secure browser database (IndexedDB) is unavailable or disabled in private browsing.');
+    }
+
+    const ownershipError = reportOwnershipError(env, [report], userId);
+    if (ownershipError) {
+      throw new Error(ownershipError);
     }
 
     try {
@@ -196,7 +301,7 @@ export const reportStorage = {
       return { success: true };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown storage write error';
-      return { success: false, error: `Local persistence failed: ${msg}` };
+      throw new Error(`Local persistence failed: ${msg}`);
     }
   },
 
@@ -215,8 +320,22 @@ export const reportStorage = {
   async saveAll(reports: WorkerReportItem[], userId: string | null): Promise<void> {
     const env = getActiveEnvironment();
     if (!isIndexedDBAvailable()) return;
+
+    const ns = resolveUserNamespace(userId);
+    const namespaceKey = runtimeNamespaceKey(env, ns);
+
+    if (!loadedReportNamespaces.has(namespaceKey)) {
+      console.warn(`[Chief Report Storage] Background persistence blocked: namespace ${namespaceKey} is not loaded.`);
+      return;
+    }
+
+    const ownershipError = reportOwnershipError(env, reports, userId);
+    if (ownershipError) {
+      console.warn(`[Chief Report Storage] ${ownershipError}`);
+      return;
+    }
+
     try {
-      const ns = resolveUserNamespace(userId);
       const records: PersistedRecord<WorkerReportItem>[] = reports.map(report => ({
         userNamespace: ns,
         id: report.id,
