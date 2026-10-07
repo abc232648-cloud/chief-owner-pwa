@@ -1,16 +1,69 @@
-import React, { useState } from 'react';
-import { Download, Share, PlusSquare, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Share, PlusSquare, X, RefreshCw } from 'lucide-react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
+import { subscribeToUpdates, applyUpdateSafely } from '../../serviceWorkerRegistration';
+
+const DISMISS_KEY = 'chief_pref_pwa_banner_dismissed';
 
 export const PWAInstallBanner: React.FC = () => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSModal, setShowIOSModal] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DISMISS_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [hasUpdate, setHasUpdate] = useState(false);
+
+  useEffect(() => {
+    return subscribeToUpdates((available) => {
+      setHasUpdate(available);
+    });
+  }, []);
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    try {
+      localStorage.setItem(DISMISS_KEY, 'true');
+    } catch {
+      // Ignore storage errors in restricted contexts
+    }
+  };
+
+  // If a new version of the app is available, display prominent safe update bar
+  if (hasUpdate) {
+    return (
+      <div className="rounded-xl border border-sky-800/80 bg-sky-950/80 p-3 text-xs flex items-center justify-between gap-3 text-sky-200 shadow-md animate-fadeIn">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-sky-900 border border-sky-700 flex items-center justify-center text-sky-300 shrink-0">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-white tracking-tight">
+              App Update Available
+            </p>
+            <p className="text-[11px] text-sky-300/70 truncate">
+              A newer version of Chief Mobile is ready.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => applyUpdateSafely(true)}
+          className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold font-mono text-xs transition-colors shrink-0 shadow-sm"
+        >
+          Update Now
+        </button>
+      </div>
+    );
+  }
 
   if (isInstalled || dismissed) {
     return null;
   }
 
+  // Only display if browser actually fired beforeinstallprompt or is iOS Safari
   if (!isInstallable && !isIOS) {
     return null;
   }
@@ -49,7 +102,7 @@ export const PWAInstallBanner: React.FC = () => {
             </button>
           )}
           <button
-            onClick={() => setDismissed(true)}
+            onClick={handleDismiss}
             className="p-1 rounded text-emerald-400/50 hover:text-emerald-200"
             aria-label="Dismiss banner"
           >
@@ -95,3 +148,4 @@ export const PWAInstallBanner: React.FC = () => {
     </>
   );
 };
+

@@ -10,9 +10,8 @@ import { useAuth } from './AuthContext';
 import { chiefApi, ChiefApiError } from '../api';
 import { WorkerReportItem } from '../types/workerReport';
 import { isChiefDevMode } from '../config/devMode';
+import { queueStorage } from '../storage';
 
-const QUEUE_STORAGE_KEY_PROD = 'chief_offline_queue_prod_v2';
-const QUEUE_STORAGE_KEY_DEV = 'chief_offline_queue_dev_v2';
 const MAX_BOUNDED_RETRIES = 3;
 
 interface EnqueueOptions {
@@ -52,24 +51,15 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const isDev = isChiefDevMode();
 
   // Load initial queue
-  // BATCH 13B.3.1: Environment-specific storage namespaces prevent DEV data leaking into production
+  // BATCH 13C.2A: Versioned client storage layer with authenticated user isolation
   const [queue, setQueue] = useState<QueueItem[]>(() => {
-    const storageKey = isDev ? QUEUE_STORAGE_KEY_DEV : QUEUE_STORAGE_KEY_PROD;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore
-    }
     // Fresh production install MUST start empty
     if (!isDev) {
       return [];
     }
     return INITIAL_OFFLINE_QUEUE;
   });
+  const [isQueueLoaded, setIsQueueLoaded] = useState(false);
 
   const [isSyncing, setIsSyncing] = useState(false);
   // BATCH 13B.3.1.1 Requirement 6: Fresh production install must have lastSyncTimestamp = null (Never synchronized)
@@ -78,15 +68,44 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   });
   const [networkOnline, setNetworkOnline] = useState<boolean>(navigator.onLine);
 
-  // Sync to localStorage using environment-specific key
+  // Load user-scoped queue records from versioned storage
   useEffect(() => {
-    const storageKey = isDev ? QUEUE_STORAGE_KEY_DEV : QUEUE_STORAGE_KEY_PROD;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(queue));
-    } catch {
-      // ignore
-    }
-  }, [queue, isDev]);
+    let isCancelled = false;
+
+    const loadUserQueue = async () => {
+      try {
+        const stored = await queueStorage.getAll(user?.userId ?? null);
+        if (!isCancelled) {
+          if (stored && stored.length > 0) {
+            setQueue(stored);
+          } else if (isDev) {
+            setQueue(INITIAL_OFFLINE_QUEUE);
+          } else {
+            setQueue([]);
+          }
+          setIsQueueLoaded(true);
+        }
+      } catch (err) {
+        console.warn('[OfflineQueueContext] Error loading queue from IndexedDB:', err);
+        if (!isCancelled) {
+          setIsQueueLoaded(true);
+        }
+      }
+    };
+
+    setIsQueueLoaded(false);
+    loadUserQueue();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [user?.userId, isDev]);
+
+  // Persist queue to versioned IndexedDB with user namespace isolation
+  useEffect(() => {
+    if (!isQueueLoaded) return;
+    queueStorage.saveAll(queue, user?.userId ?? null);
+  }, [queue, isQueueLoaded, user?.userId]);
 
   // Online / Offline window listeners
   useEffect(() => {

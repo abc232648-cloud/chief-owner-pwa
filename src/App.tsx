@@ -17,6 +17,7 @@ import { BackendUnavailableView } from './components/auth/BackendUnavailableView
 import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { SystemDetailsModal } from './components/SystemDetailsModal';
 import { OfflineQueueModal } from './components/queue/OfflineQueueModal';
+import { PWAInstallBanner } from './components/ui/PWAInstallBanner';
 
 function MainAppShell() {
   const { 
@@ -108,7 +109,8 @@ function MainAppShell() {
       />
 
       {/* 2. Main Content Viewport */}
-      <main className="flex-1 max-w-lg md:max-w-2xl lg:max-w-5xl w-full mx-auto px-4 sm:px-6 pt-5 pb-safe overflow-x-hidden">
+      <main className="flex-1 max-w-lg md:max-w-2xl lg:max-w-5xl w-full mx-auto px-4 sm:px-6 pt-5 pb-safe overflow-x-hidden space-y-4">
+        <PWAInstallBanner />
         <Routes>
           <Route path="/" element={<HomeScreen />} />
           <Route path="/agents" element={<AgentsScreen />} />

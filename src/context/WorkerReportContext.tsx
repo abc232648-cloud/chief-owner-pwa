@@ -14,9 +14,7 @@ import { useChief } from './ChiefContext';
 import { chiefApi, ChiefApiError } from '../api';
 
 import { isChiefDevMode } from '../config/devMode';
-
-const STORAGE_KEY_PROD = 'chief_worker_reports_prod_v1';
-const STORAGE_KEY_DEV = 'chief_worker_reports_dev_v1';
+import { reportStorage } from '../storage';
 
 /**
  * Validates whether an error represents an explicit, authoritative Chief validation/policy rejection.
@@ -136,36 +134,57 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { state: chiefState } = useChief();
   const isDev = isChiefDevMode();
 
-  // BATCH 13B.3.1: Separate environment-specific storage namespaces to prevent DEV leaks into production
+  // BATCH 13C.2A: Versioned client storage layer with authenticated user isolation
   const [reports, setReports] = useState<WorkerReportItem[]>(() => {
-    const storageKey = isDev ? STORAGE_KEY_DEV : STORAGE_KEY_PROD;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch {
-      // ignore JSON parse or storage errors
-    }
     // Production fresh install MUST start empty
     if (!isDev) {
       return [];
     }
     return INITIAL_SAMPLE_WORKER_REPORTS;
   });
+  const [isReportsLoaded, setIsReportsLoaded] = useState(false);
 
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
   const [lastSubmittedReport, setLastSubmittedReport] = useState<WorkerReportItem | null>(null);
 
-  // Sync state to local storage whenever reports update
+  // Load user-scoped reports from versioned storage
   useEffect(() => {
-    const storageKey = isDev ? STORAGE_KEY_DEV : STORAGE_KEY_PROD;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(reports));
-    } catch {
-      // Storage quota or private mode protection
-    }
-  }, [reports, isDev]);
+    let isCancelled = false;
+
+    const loadUserReports = async () => {
+      try {
+        const stored = await reportStorage.getAll(user?.userId ?? null);
+        if (!isCancelled) {
+          if (stored && stored.length > 0) {
+            setReports(stored);
+          } else if (isDev) {
+            setReports(INITIAL_SAMPLE_WORKER_REPORTS);
+          } else {
+            setReports([]);
+          }
+          setIsReportsLoaded(true);
+        }
+      } catch (err) {
+        console.warn('[WorkerReportContext] Error loading reports from IndexedDB:', err);
+        if (!isCancelled) {
+          setIsReportsLoaded(true);
+        }
+      }
+    };
+
+    setIsReportsLoaded(false);
+    loadUserReports();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [user?.userId, isDev]);
+
+  // Persist reports to versioned IndexedDB with user namespace isolation
+  useEffect(() => {
+    if (!isReportsLoaded) return;
+    reportStorage.saveAll(reports, user?.userId ?? null);
+  }, [reports, isReportsLoaded, user?.userId]);
 
   // Count items queued offline
   const queuedCount = reports.filter(r => r.status === 'queued').length;
