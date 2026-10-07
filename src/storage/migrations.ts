@@ -1,197 +1,370 @@
 /**
  * CHIEF Client Storage Migrations
- * 
- * BATCH 13C.2A.2 IMMUTABLE SPECIFICATION:
- * - Deterministic migration of legacy databases (v1, v2) and localStorage into stable v3 database.
+ *
+ * BATCH 13C.2A.2 SAFETY REPAIR:
+ * - Deterministic migration of legacy databases (v1, v2) and localStorage into the stable database.
  * - Ownership validation:
- *   - Queue: record.userNamespace === record.data.workerAttribution.userId. If inconsistent/missing, quarantine into 'unauthenticated-legacy'.
- *   - Reports: record.userNamespace === record.data.workerId. If inconsistent/missing, quarantine into 'unauthenticated-legacy'.
- * - Exact payloads, timestamps, retry counts, and authentic verification hashes are strictly preserved.
- * - Old databases are retained if migration encounters any error.
- * - Old databases are deleted ONLY after destination writes and transactions commit successfully.
- * - Migration failures are never marked as completed.
+ *   - Queue: record.userNamespace === record.data.workerAttribution.userId. If inconsistent/missing, quarantine.
+ *   - Reports: record.userNamespace === record.data.workerId. If inconsistent/missing, quarantine.
+ * - Quarantine namespaces include migration provenance so unrelated ambiguous records cannot collide solely by ID.
+ * - Migration is two-phase: copy/validate every source first, then mark complete, then clean legacy sources.
+ * - Genuine legacy sources are never deleted when copy/validation fails.
+ * - Malformed records without a safe stable identity fail the source migration rather than being silently discarded.
  */
 
 import { QueueItem } from '../types/queue';
 import { WorkerReportItem } from '../types/workerReport';
-import { 
-  StorageEnvironment, 
-  STORE_NAMES, 
-  STORAGE_SCHEMA_VERSION, 
-  PersistedRecord, 
-  StorageMetadataRecord 
+import {
+  StorageEnvironment,
+  STORE_NAMES,
+  STORAGE_SCHEMA_VERSION,
+  PersistedRecord,
+  StorageMetadataRecord
 } from './schema';
 import { idbPut, idbGet } from './idb';
+
+interface LegacyDatabaseCopyResult {
+  name: string;
+  existed: boolean;
+}
 
 function getAllFromStore<T>(db: IDBDatabase, storeName: string): Promise<T[]> {
   return new Promise((resolve, reject) => {
     try {
       if (!db.objectStoreNames.contains(storeName)) {
-        return resolve([]);
+        resolve([]);
+        return;
       }
+
       const tx = db.transaction(storeName, 'readonly');
       const store = tx.objectStore(storeName);
       const req = store.getAll();
-      req.onsuccess = () => resolve((req.result as T[]) || []);
+      let result: T[] = [];
+
+      req.onsuccess = () => {
+        result = (req.result as T[]) || [];
+      };
       req.onerror = () => reject(req.error || new Error(`Failed to read from legacy store ${storeName}`));
+      tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error || new Error(`Transaction error on legacy store ${storeName}`));
+      tx.onabort = () => reject(new Error(`Transaction aborted on legacy store ${storeName}`));
     } catch (err) {
       reject(err);
     }
   });
 }
 
-async function migrateLegacyDatabase(legacyDbName: string, environment: StorageEnvironment): Promise<void> {
-  if (typeof window === 'undefined' || !('indexedDB' in window)) return;
+function safeStorageTimestamp(primary: unknown, secondary: unknown): number {
+  if (typeof primary === 'number' && Number.isFinite(primary)) {
+    return primary;
+  }
+
+  if (typeof secondary === 'string' || typeof secondary === 'number') {
+    const parsed = new Date(secondary).getTime();
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  // Wrapper timestamps are client-storage metadata, not Chief evidence.
+  return Date.now();
+}
+
+function legacyQuarantineNamespace(source: string, claimedNamespace: unknown): string {
+  const claimed = typeof claimedNamespace === 'string' && claimedNamespace.trim().length > 0
+    ? claimedNamespace.trim()
+    : 'unknown';
+  return `unauthenticated-legacy:${source}:${claimed}`;
+}
+
+async function openLegacyDatabaseIfPresent(legacyDbName: string): Promise<IDBDatabase | null> {
+  return new Promise((resolve, reject) => {
+    const req = window.indexedDB.open(legacyDbName);
+    let createdByProbe = false;
+
+    req.onupgradeneeded = () => {
+      // Opening a nonexistent DB creates an empty version-1 DB. It is not a genuine migration source.
+      createdByProbe = true;
+    };
+
+    req.onsuccess = () => {
+      const db = req.result;
+      if (createdByProbe && db.objectStoreNames.length === 0) {
+        db.close();
+        const cleanup = window.indexedDB.deleteDatabase(legacyDbName);
+        cleanup.onsuccess = () => resolve(null);
+        cleanup.onerror = () => resolve(null);
+        cleanup.onblocked = () => resolve(null);
+        return;
+      }
+      resolve(db);
+    };
+
+    req.onerror = () => reject(req.error || new Error(`Failed to open legacy DB: ${legacyDbName}`));
+    req.onblocked = () => reject(new Error(`Opening legacy DB [${legacyDbName}] was blocked`));
+  });
+}
+
+async function copyLegacyDatabase(
+  legacyDbName: string,
+  environment: StorageEnvironment
+): Promise<LegacyDatabaseCopyResult> {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) {
+    return { name: legacyDbName, existed: false };
+  }
 
   let legacyDb: IDBDatabase | null = null;
 
   try {
-    legacyDb = await new Promise<IDBDatabase | null>((resolve, reject) => {
-      const req = window.indexedDB.open(legacyDbName);
-      let wasUpgrade = false;
-      req.onupgradeneeded = () => {
-        // If DB did not exist previously, opening it triggers upgradeneeded with empty stores
-        wasUpgrade = true;
-      };
-      req.onsuccess = () => {
-        const db = req.result;
-        if (wasUpgrade && db.objectStoreNames.length === 0) {
-          // Database was created freshly just by opening; nothing to migrate
-          db.close();
-          window.indexedDB.deleteDatabase(legacyDbName);
-          resolve(null);
-        } else {
-          resolve(db);
-        }
-      };
-      req.onerror = () => reject(req.error || new Error(`Failed to open legacy DB: ${legacyDbName}`));
-      req.onblocked = () => reject(new Error(`Opening legacy DB [${legacyDbName}] was blocked`));
-    });
+    legacyDb = await openLegacyDatabaseIfPresent(legacyDbName);
+    if (!legacyDb) {
+      return { name: legacyDbName, existed: false };
+    }
 
-    if (!legacyDb) return;
-
-    // 1. Read legacy queue records
     if (legacyDb.objectStoreNames.contains(STORE_NAMES.QUEUE)) {
       const rawQueueRecords = await getAllFromStore<any>(legacyDb, STORE_NAMES.QUEUE);
+
       for (const rec of rawQueueRecords) {
-        const item: QueueItem = rec.data || rec;
-        if (!item || !item.id) continue;
+        const item: QueueItem | undefined = rec?.data || rec;
+        if (!item || typeof item.id !== 'string' || item.id.trim().length === 0) {
+          throw new Error(`Malformed legacy queue record without stable identity in ${legacyDbName}. Source retained.`);
+        }
 
         let sanitizedItem: QueueItem = { ...item };
-
-        // OWNERSHIP VALIDATION:
-        // Must match record.userNamespace === record.data.workerAttribution.userId.
-        // Otherwise quarantine in 'unauthenticated-legacy'. NEVER attach to current user.
-        const claimedNamespace = rec.userNamespace;
+        const claimedNamespace = rec?.userNamespace;
         const attributedUser = sanitizedItem.workerAttribution?.userId;
-        const isOwnerConsistent = claimedNamespace && 
-          attributedUser && 
+        const isOwnerConsistent =
+          typeof claimedNamespace === 'string' &&
+          typeof attributedUser === 'string' &&
+          claimedNamespace.trim().length > 0 &&
+          attributedUser.trim().length > 0 &&
           claimedNamespace.trim() === attributedUser.trim() &&
           claimedNamespace !== 'unauthenticated' &&
           claimedNamespace !== 'unauthenticated-legacy';
 
-        const finalNamespace = isOwnerConsistent ? claimedNamespace.trim() : 'unauthenticated-legacy';
+        const finalNamespace = isOwnerConsistent
+          ? claimedNamespace.trim()
+          : legacyQuarantineNamespace(legacyDbName, claimedNamespace);
 
-        // Replay safety check
         const actionTypeStr = String(sanitizedItem.actionType || '').toUpperCase();
-        if (actionTypeStr === 'SUBMIT_WORKER_REPORT') {
-          if (!sanitizedItem.reportPayload || typeof sanitizedItem.reportPayload !== 'object') {
-            sanitizedItem = {
-              ...sanitizedItem,
-              status: 'failed_permanent',
-              lastFailure: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
-            };
-          }
+        if (actionTypeStr === 'SUBMIT_WORKER_REPORT' &&
+            (!sanitizedItem.reportPayload || typeof sanitizedItem.reportPayload !== 'object')) {
+          sanitizedItem = {
+            ...sanitizedItem,
+            status: 'failed_permanent',
+            lastFailure: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
+          };
         }
 
-        const v3Record: PersistedRecord<QueueItem> = {
+        const vCurrentRecord: PersistedRecord<QueueItem> = {
           userNamespace: finalNamespace,
           id: sanitizedItem.id,
           environment,
           schemaVersion: STORAGE_SCHEMA_VERSION,
           data: sanitizedItem,
-          createdAt: sanitizedItem.createdAt ? new Date(sanitizedItem.createdAt).getTime() : Date.now(),
-          updatedAt: Date.now()
+          createdAt: safeStorageTimestamp(rec?.createdAt, sanitizedItem.createdAt),
+          updatedAt: safeStorageTimestamp(rec?.updatedAt, undefined)
         };
 
-        // Write to stable database and await transaction commit
-        await idbPut(environment, STORE_NAMES.QUEUE, v3Record);
+        await idbPut(environment, STORE_NAMES.QUEUE, vCurrentRecord);
       }
     }
 
-    // 2. Read legacy worker reports
     if (legacyDb.objectStoreNames.contains(STORE_NAMES.REPORTS)) {
       const rawReportRecords = await getAllFromStore<any>(legacyDb, STORE_NAMES.REPORTS);
+
       for (const rec of rawReportRecords) {
-        const report: WorkerReportItem = rec.data || rec;
-        if (!report || !report.id) continue;
+        const report: WorkerReportItem | undefined = rec?.data || rec;
+        if (!report || typeof report.id !== 'string' || report.id.trim().length === 0) {
+          throw new Error(`Malformed legacy report without stable identity in ${legacyDbName}. Source retained.`);
+        }
 
         const sanitizedReport: WorkerReportItem = { ...report };
-
-        // OWNERSHIP VALIDATION:
-        // Must match record.userNamespace === record.data.workerId
-        const claimedNamespace = rec.userNamespace;
+        const claimedNamespace = rec?.userNamespace;
         const reportWorkerId = sanitizedReport.workerId;
-        const isOwnerConsistent = claimedNamespace && 
-          reportWorkerId && 
+        const isOwnerConsistent =
+          typeof claimedNamespace === 'string' &&
+          typeof reportWorkerId === 'string' &&
+          claimedNamespace.trim().length > 0 &&
+          reportWorkerId.trim().length > 0 &&
           claimedNamespace.trim() === reportWorkerId.trim() &&
           claimedNamespace !== 'unauthenticated' &&
           claimedNamespace !== 'unauthenticated-legacy';
 
-        const finalNamespace = isOwnerConsistent ? claimedNamespace.trim() : 'unauthenticated-legacy';
+        const finalNamespace = isOwnerConsistent
+          ? claimedNamespace.trim()
+          : legacyQuarantineNamespace(legacyDbName, claimedNamespace);
 
-        // Never fabricate accepted_by_chief without backend proof
+        // Never preserve an authoritative-looking accepted state without actual backend proof.
         if (sanitizedReport.status === 'accepted_by_chief' && !sanitizedReport.backendConfirmationHash) {
           sanitizedReport.status = 'saved_locally';
         }
 
-        const v3Record: PersistedRecord<WorkerReportItem> = {
+        const vCurrentRecord: PersistedRecord<WorkerReportItem> = {
           userNamespace: finalNamespace,
           id: sanitizedReport.id,
           environment,
           schemaVersion: STORAGE_SCHEMA_VERSION,
           data: sanitizedReport,
-          createdAt: sanitizedReport.createdAt ? new Date(sanitizedReport.createdAt).getTime() : Date.now(),
-          updatedAt: Date.now()
+          createdAt: safeStorageTimestamp(rec?.createdAt, sanitizedReport.createdAt),
+          updatedAt: safeStorageTimestamp(rec?.updatedAt, undefined)
         };
 
-        await idbPut(environment, STORE_NAMES.REPORTS, v3Record);
+        await idbPut(environment, STORE_NAMES.REPORTS, vCurrentRecord);
       }
     }
 
-    // 3. Close legacy database
     legacyDb.close();
     legacyDb = null;
-
-    // 4. Only after all writes succeed, delete the legacy database
-    await new Promise<void>((resolve, reject) => {
-      const delReq = window.indexedDB.deleteDatabase(legacyDbName);
-      delReq.onsuccess = () => resolve();
-      delReq.onerror = () => reject(delReq.error || new Error(`Failed to delete legacy DB ${legacyDbName}`));
-      delReq.onblocked = () => {
-        // Even if delete is blocked by pending connections, data is safely in stable DB
-        resolve();
-      };
-    });
+    return { name: legacyDbName, existed: true };
   } catch (err) {
     if (legacyDb) {
       legacyDb.close();
     }
-    // Propagate error: DO NOT delete old database or mark migration complete
+    // No source deletion occurs here. Global migration cleanup happens only after every source copies successfully.
     throw err;
   }
 }
 
+async function deleteLegacyDatabaseBestEffort(legacyDbName: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const req = window.indexedDB.deleteDatabase(legacyDbName);
+    req.onsuccess = () => resolve();
+    req.onerror = () => {
+      console.warn(`[Chief Storage Migration] Legacy DB cleanup failed for ${legacyDbName}; migrated destination data is retained.`);
+      resolve();
+    };
+    req.onblocked = () => {
+      console.warn(`[Chief Storage Migration] Legacy DB cleanup blocked for ${legacyDbName}; source retained.`);
+      resolve();
+    };
+  });
+}
+
+async function copyLegacyLocalStorageQueue(
+  environment: StorageEnvironment,
+  queueKey: string
+): Promise<boolean> {
+  const rawQueue = localStorage.getItem(queueKey);
+  if (!rawQueue) {
+    return false;
+  }
+
+  const parsed = JSON.parse(rawQueue) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Legacy queue source ${queueKey} is not an array. Source retained.`);
+  }
+
+  const seenKeys = new Set<string>();
+
+  for (const rawItem of parsed) {
+    const item = rawItem as QueueItem;
+    if (!item || typeof item.id !== 'string' || item.id.trim().length === 0) {
+      throw new Error(`Malformed legacy queue record without stable identity in ${queueKey}. Source retained.`);
+    }
+
+    let sanitizedItem: QueueItem = { ...item };
+    const attributedUser = sanitizedItem.workerAttribution?.userId;
+    const ownerNamespace =
+      typeof attributedUser === 'string' && attributedUser.trim().length > 0
+        ? attributedUser.trim()
+        : legacyQuarantineNamespace(`localStorage:${queueKey}`, undefined);
+
+    const destinationKey = `${ownerNamespace}\u0000${sanitizedItem.id}`;
+    if (seenKeys.has(destinationKey)) {
+      throw new Error(`Duplicate legacy queue identity ${sanitizedItem.id} in ${queueKey}. Source retained.`);
+    }
+    seenKeys.add(destinationKey);
+
+    const actionTypeStr = String(sanitizedItem.actionType || '').toUpperCase();
+    if (actionTypeStr === 'SUBMIT_WORKER_REPORT' &&
+        (!sanitizedItem.reportPayload || typeof sanitizedItem.reportPayload !== 'object')) {
+      sanitizedItem = {
+        ...sanitizedItem,
+        status: 'failed_permanent',
+        lastFailure: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
+      };
+    }
+
+    const record: PersistedRecord<QueueItem> = {
+      userNamespace: ownerNamespace,
+      id: sanitizedItem.id,
+      environment,
+      schemaVersion: STORAGE_SCHEMA_VERSION,
+      data: sanitizedItem,
+      createdAt: safeStorageTimestamp(undefined, sanitizedItem.createdAt),
+      updatedAt: Date.now()
+    };
+
+    await idbPut(environment, STORE_NAMES.QUEUE, record);
+  }
+
+  return true;
+}
+
+async function copyLegacyLocalStorageReports(
+  environment: StorageEnvironment,
+  reportKey: string
+): Promise<boolean> {
+  const rawReports = localStorage.getItem(reportKey);
+  if (!rawReports) {
+    return false;
+  }
+
+  const parsed = JSON.parse(rawReports) as unknown;
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Legacy report source ${reportKey} is not an array. Source retained.`);
+  }
+
+  const seenKeys = new Set<string>();
+
+  for (const rawReport of parsed) {
+    const report = rawReport as WorkerReportItem;
+    if (!report || typeof report.id !== 'string' || report.id.trim().length === 0) {
+      throw new Error(`Malformed legacy report without stable identity in ${reportKey}. Source retained.`);
+    }
+
+    const sanitizedReport: WorkerReportItem = { ...report };
+    const workerId = sanitizedReport.workerId;
+    const ownerNamespace =
+      typeof workerId === 'string' && workerId.trim().length > 0
+        ? workerId.trim()
+        : legacyQuarantineNamespace(`localStorage:${reportKey}`, undefined);
+
+    const destinationKey = `${ownerNamespace}\u0000${sanitizedReport.id}`;
+    if (seenKeys.has(destinationKey)) {
+      throw new Error(`Duplicate legacy report identity ${sanitizedReport.id} in ${reportKey}. Source retained.`);
+    }
+    seenKeys.add(destinationKey);
+
+    if (sanitizedReport.status === 'accepted_by_chief' && !sanitizedReport.backendConfirmationHash) {
+      sanitizedReport.status = 'saved_locally';
+    }
+
+    const record: PersistedRecord<WorkerReportItem> = {
+      userNamespace: ownerNamespace,
+      id: sanitizedReport.id,
+      environment,
+      schemaVersion: STORAGE_SCHEMA_VERSION,
+      data: sanitizedReport,
+      createdAt: safeStorageTimestamp(undefined, sanitizedReport.createdAt),
+      updatedAt: Date.now()
+    };
+
+    await idbPut(environment, STORE_NAMES.REPORTS, record);
+  }
+
+  return true;
+}
+
 export async function runClientMigrations(environment: StorageEnvironment): Promise<void> {
-  if (typeof window === 'undefined' || !window.localStorage) {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) {
     return;
   }
 
   const migrationKey = `chief_migration_status_${environment.toLowerCase()}_v${STORAGE_SCHEMA_VERSION}`;
 
   try {
-    // 1. Check if migration has already been executed for this environment and schema version
     const migrationMeta = await idbGet<StorageMetadataRecord>(
       environment,
       STORE_NAMES.METADATA,
@@ -199,101 +372,48 @@ export async function runClientMigrations(environment: StorageEnvironment): Prom
     );
 
     if (migrationMeta && migrationMeta.updatedAt) {
-      return; // Already completed for this environment
+      return;
     }
 
-    // 2. Migrate legacy v1 and v2 physical IndexedDB databases if present
+    // ---------------------------
+    // PHASE A: COPY / VALIDATE
+    // ---------------------------
+    // Do not delete any genuine migration source during this phase.
     const legacyDbV1 = `chief_storage_${environment.toLowerCase()}_v1`;
     const legacyDbV2 = `chief_storage_${environment.toLowerCase()}_v2`;
 
-    await migrateLegacyDatabase(legacyDbV1, environment);
-    await migrateLegacyDatabase(legacyDbV2, environment);
+    const copiedLegacyDatabases: LegacyDatabaseCopyResult[] = [];
+    copiedLegacyDatabases.push(await copyLegacyDatabase(legacyDbV1, environment));
+    copiedLegacyDatabases.push(await copyLegacyDatabase(legacyDbV2, environment));
 
-    // 3. Migrate Legacy LocalStorage Queue Items
-    const queueKey = environment === 'PROD' 
-      ? 'chief_offline_queue_prod_v2' 
-      : 'chief_offline_queue_dev_v2';
-    
-    const rawQueue = localStorage.getItem(queueKey);
-    if (rawQueue) {
-      const parsed = JSON.parse(rawQueue) as QueueItem[];
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          let sanitizedItem: QueueItem = { ...item };
+    let queueKey: string | null = null;
+    let reportKey: string | null = null;
+    let queueSourceCopied = false;
+    let reportSourceCopied = false;
 
-          // STRICT OWNERSHIP RULE:
-          const attributedUser = sanitizedItem.workerAttribution?.userId;
-          const ownerNamespace = (attributedUser && typeof attributedUser === 'string' && attributedUser.trim().length > 0)
-            ? attributedUser.trim()
-            : 'unauthenticated-legacy';
+    try {
+      // Access may itself be restricted by browser privacy settings.
+      const storage = window.localStorage;
+      queueKey = environment === 'PROD'
+        ? 'chief_offline_queue_prod_v2'
+        : 'chief_offline_queue_dev_v2';
+      reportKey = environment === 'PROD'
+        ? 'chief_worker_reports_prod_v1'
+        : 'chief_worker_reports_dev_v1';
 
-          // REPLAY SAFETY CHECK:
-          const actionTypeStr = String(sanitizedItem.actionType || '').toUpperCase();
-          if (actionTypeStr === 'SUBMIT_WORKER_REPORT') {
-            if (!sanitizedItem.reportPayload || typeof sanitizedItem.reportPayload !== 'object') {
-              sanitizedItem = {
-                ...sanitizedItem,
-                status: 'failed_permanent',
-                lastFailure: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
-              };
-            }
-          }
-
-          const record: PersistedRecord<QueueItem> = {
-            userNamespace: ownerNamespace,
-            id: sanitizedItem.id,
-            environment,
-            schemaVersion: STORAGE_SCHEMA_VERSION,
-            data: sanitizedItem,
-            createdAt: sanitizedItem.createdAt ? new Date(sanitizedItem.createdAt).getTime() : Date.now(),
-            updatedAt: Date.now()
-          };
-
-          await idbPut(environment, STORE_NAMES.QUEUE, record);
-        }
-      }
-      localStorage.removeItem(queueKey);
+      queueSourceCopied = await copyLegacyLocalStorageQueue(environment, queueKey);
+      reportSourceCopied = await copyLegacyLocalStorageReports(environment, reportKey);
+      void storage; // documents that successful localStorage access is part of Phase A.
+    } catch (err) {
+      // No source has been removed yet. Propagate so completion metadata is not written.
+      throw err;
     }
 
-    // 4. Migrate Legacy LocalStorage Worker Reports
-    const reportKey = environment === 'PROD' 
-      ? 'chief_worker_reports_prod_v1' 
-      : 'chief_worker_reports_dev_v1';
-
-    const rawReports = localStorage.getItem(reportKey);
-    if (rawReports) {
-      const parsedReports = JSON.parse(rawReports) as WorkerReportItem[];
-      if (Array.isArray(parsedReports)) {
-        for (const report of parsedReports) {
-          const sanitizedReport: WorkerReportItem = { ...report };
-
-          const workerId = sanitizedReport.workerId;
-          const ownerNamespace = (workerId && typeof workerId === 'string' && workerId.trim().length > 0)
-            ? workerId.trim()
-            : 'unauthenticated-legacy';
-
-          // Guarantee local status is never escalated to accepted_by_chief without proof
-          if (sanitizedReport.status === 'accepted_by_chief' && !sanitizedReport.backendConfirmationHash) {
-            sanitizedReport.status = 'saved_locally';
-          }
-
-          const record: PersistedRecord<WorkerReportItem> = {
-            userNamespace: ownerNamespace,
-            id: sanitizedReport.id,
-            environment,
-            schemaVersion: STORAGE_SCHEMA_VERSION,
-            data: sanitizedReport,
-            createdAt: sanitizedReport.createdAt ? new Date(sanitizedReport.createdAt).getTime() : Date.now(),
-            updatedAt: Date.now()
-          };
-
-          await idbPut(environment, STORE_NAMES.REPORTS, record);
-        }
-      }
-      localStorage.removeItem(reportKey);
-    }
-
-    // 5. Record migration completion in metadata ONLY after all steps succeed
+    // ---------------------------
+    // PHASE B: COMMIT / CLEANUP
+    // ---------------------------
+    // Destination records are committed. Mark migration complete before cleanup so cleanup
+    // failure cannot cause destructive reprocessing; legacy sources are merely redundant now.
     await idbPut(environment, STORE_NAMES.METADATA, {
       key: migrationKey,
       value: { completed: true, environment, version: STORAGE_SCHEMA_VERSION },
@@ -301,8 +421,25 @@ export async function runClientMigrations(environment: StorageEnvironment): Prom
       schemaVersion: STORAGE_SCHEMA_VERSION,
       updatedAt: Date.now()
     });
+
+    for (const source of copiedLegacyDatabases) {
+      if (source.existed) {
+        await deleteLegacyDatabaseBestEffort(source.name);
+      }
+    }
+
+    try {
+      if (queueSourceCopied && queueKey) {
+        localStorage.removeItem(queueKey);
+      }
+      if (reportSourceCopied && reportKey) {
+        localStorage.removeItem(reportKey);
+      }
+    } catch (cleanupErr) {
+      console.warn('[Chief Storage Migration] Legacy localStorage cleanup failed; migrated destination data is retained.', cleanupErr);
+    }
   } catch (err) {
-    // DO NOT write completed flag on failure; surface failure
+    // No completion flag is written on Phase-A failure. Genuine source DBs/localStorage remain intact.
     console.error(`[Chief Storage Migration] Migration failed for ${environment}:`, err);
     throw err;
   }
