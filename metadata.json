@@ -2,6 +2,6 @@
   "name": "CHIEF Operational Command",
   "description": "Immediate operational view, system health verification, multi-agent monitoring, and authoritative intervention dashboard.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
 

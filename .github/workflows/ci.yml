@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR to optimize runner resources
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build & Verify (Node 20 LTS)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Frontend secret-safety sanity check
+        run: npm run check:secrets
+
+      - name: Deterministic dependency install (npm ci)
+        run: npm ci
+
+      - name: Strict TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Production Vite build
+        run: npm run build

@@ -5,7 +5,10 @@ export class ChiefApiClient {
 
   constructor(config: Partial<ApiClientConfig> = {}) {
     this.config = {
-      baseUrl: config.baseUrl || (typeof window !== 'undefined' && (window as any).__CHIEF_API_URL__) || '/api/v1',
+      baseUrl: config.baseUrl || 
+        (typeof window !== 'undefined' && (window as any).__CHIEF_API_URL__) || 
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CHIEF_API_BASE_URL) || 
+        '/api/v1',
       timeoutMs: config.timeoutMs ?? 8000,
       getAuthTokenRef: config.getAuthTokenRef,
       defaultHeaders: config.defaultHeaders || {
