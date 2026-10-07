@@ -79,7 +79,6 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => { cancelled = true; };
   }, [user?.userId, isDev]);
 
-  // The storage layer rejects namespace/ownership mismatches, protecting user switches.
   useEffect(() => {
     if (!isQueueLoaded) return;
     void queueStorage.saveAll(queue, user?.userId ?? null);
@@ -147,7 +146,8 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       maxRetries: MAX_BOUNDED_RETRIES,
       requiresUserIntervention: false,
       policyPermitted: true,
-      payload: options.payload,
+      // Worker-report queue entries persist the sanitized report data, never the modal's pre-sanitization draft.
+      payload: options.reportPayload?.data ?? options.payload,
       payloadVersion: options.payloadVersion ?? (options.reportPayload ? 1 : undefined),
       reportPayload: options.reportPayload,
       workerAttribution: {
@@ -311,7 +311,6 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return;
     }
 
-    // No live reconciliation adapter exists. Preserve the conflict instead of pretending either side won.
     await persistAndReplace({
       ...item,
       status: 'conflict',
