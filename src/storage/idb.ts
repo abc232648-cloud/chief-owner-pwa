@@ -1,11 +1,12 @@
 /**
  * CHIEF IndexedDB Adapter
  * 
- * BATCH 13C.2A.1 IMMUTABLE SPECIFICATION:
- * - Version 2: True compound primary keys ['userNamespace', 'id'] on offline_queue and worker_reports.
- * - Prevents cross-user ID collision (User A with 'rep-1' cannot overwrite User B with 'rep-1').
- * - Handles storage quotas, private mode limitations, and schema version upgrades.
- * - Single authoritative telemetry read cache remains memory/sessionStorage.
+ * BATCH 13C.2A.2 IMMUTABLE SPECIFICATION:
+ * - Version 3: Stable physical database names ('chief_storage_prod' / 'chief_storage_dev').
+ * - Preserves stores on normal version upgrades without blind deleteObjectStore.
+ * - Transaction completion semantics: write operations resolve ONLY on transaction.oncomplete,
+ *   and reject on transaction error or transaction abort.
+ * - Compound primary keys ['userNamespace', 'id'] for true user isolation.
  */
 
 import { 
@@ -51,28 +52,27 @@ export async function openDatabase(environment: StorageEnvironment): Promise<IDB
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
 
-      // 1. Clean up deprecated telemetry cache store if present from v1
+      // Clean up deprecated telemetry cache store if present from legacy iterations
       if (db.objectStoreNames.contains('telemetry_cache')) {
         db.deleteObjectStore('telemetry_cache');
       }
 
-      // 2. Offline Queue Store: compound primary key ['userNamespace', 'id']
-      if (db.objectStoreNames.contains(STORE_NAMES.QUEUE)) {
-        db.deleteObjectStore(STORE_NAMES.QUEUE);
+      // 1. Offline Queue Store: compound primary key ['userNamespace', 'id']
+      // Do NOT blindly deleteObjectStore if it already exists in stable DB!
+      if (!db.objectStoreNames.contains(STORE_NAMES.QUEUE)) {
+        const queueStore = db.createObjectStore(STORE_NAMES.QUEUE, { keyPath: ['userNamespace', 'id'] });
+        queueStore.createIndex('userNamespace', 'userNamespace', { unique: false });
+        queueStore.createIndex('environment', 'environment', { unique: false });
       }
-      const queueStore = db.createObjectStore(STORE_NAMES.QUEUE, { keyPath: ['userNamespace', 'id'] });
-      queueStore.createIndex('userNamespace', 'userNamespace', { unique: false });
-      queueStore.createIndex('environment', 'environment', { unique: false });
 
-      // 3. Worker Reports Store: compound primary key ['userNamespace', 'id']
-      if (db.objectStoreNames.contains(STORE_NAMES.REPORTS)) {
-        db.deleteObjectStore(STORE_NAMES.REPORTS);
+      // 2. Worker Reports Store: compound primary key ['userNamespace', 'id']
+      if (!db.objectStoreNames.contains(STORE_NAMES.REPORTS)) {
+        const reportStore = db.createObjectStore(STORE_NAMES.REPORTS, { keyPath: ['userNamespace', 'id'] });
+        reportStore.createIndex('userNamespace', 'userNamespace', { unique: false });
+        reportStore.createIndex('environment', 'environment', { unique: false });
       }
-      const reportStore = db.createObjectStore(STORE_NAMES.REPORTS, { keyPath: ['userNamespace', 'id'] });
-      reportStore.createIndex('userNamespace', 'userNamespace', { unique: false });
-      reportStore.createIndex('environment', 'environment', { unique: false });
 
-      // 4. Metadata Store: primary key 'key'
+      // 3. Metadata Store: primary key 'key'
       if (!db.objectStoreNames.contains(STORE_NAMES.METADATA)) {
         db.createObjectStore(STORE_NAMES.METADATA, { keyPath: 'key' });
       }
@@ -102,6 +102,7 @@ export async function openDatabase(environment: StorageEnvironment): Promise<IDB
 
 /**
  * Generic put operation into an object store.
+ * Resolves ONLY on transaction.oncomplete for verifiable durable persistence.
  */
 export async function idbPut<T>(
   environment: StorageEnvironment,
@@ -113,11 +114,11 @@ export async function idbPut<T>(
     try {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.put(value);
+      store.put(value);
 
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error(`Write failed on ${storeName}`));
-      tx.onerror = () => reject(tx.error || new Error(`Transaction error on ${storeName}`));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error(`Write transaction failed on ${storeName}`));
+      tx.onabort = () => reject(new Error(`Write transaction was aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -141,6 +142,8 @@ export async function idbGet<T>(
 
       req.onsuccess = () => resolve((req.result as T) || null);
       req.onerror = () => reject(req.error || new Error(`Read failed on ${storeName}`));
+      tx.onerror = () => reject(tx.error || new Error(`Read transaction error on ${storeName}`));
+      tx.onabort = () => reject(new Error(`Read transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -177,6 +180,8 @@ export async function idbGetByUser<T>(
 
       req.onsuccess = () => resolve((req.result as T[]) || []);
       req.onerror = () => reject(req.error || new Error(`Query failed on ${storeName} for user ${userNamespace}`));
+      tx.onerror = () => reject(tx.error || new Error(`Query transaction error on ${storeName}`));
+      tx.onabort = () => reject(new Error(`Query transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -185,6 +190,7 @@ export async function idbGetByUser<T>(
 
 /**
  * Delete a user-scoped record by its compound primary key [userNamespace, id].
+ * Resolves ONLY on transaction.oncomplete.
  */
 export async function idbDeleteUserRecord(
   environment: StorageEnvironment,
@@ -197,10 +203,11 @@ export async function idbDeleteUserRecord(
     try {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.delete([userNamespace, id]);
+      store.delete([userNamespace, id]);
 
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error(`Delete failed on ${storeName}`));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error(`Delete failed on ${storeName}`));
+      tx.onabort = () => reject(new Error(`Delete transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -209,6 +216,7 @@ export async function idbDeleteUserRecord(
 
 /**
  * Delete a single record by primary key (for metadata store).
+ * Resolves ONLY on transaction.oncomplete.
  */
 export async function idbDelete(
   environment: StorageEnvironment,
@@ -220,10 +228,11 @@ export async function idbDelete(
     try {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.delete(key);
+      store.delete(key);
 
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error(`Delete failed on ${storeName}`));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error(`Delete failed on ${storeName}`));
+      tx.onabort = () => reject(new Error(`Delete transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -232,6 +241,7 @@ export async function idbDelete(
 
 /**
  * Clear all records scoped to a user namespace.
+ * Resolves ONLY on transaction.oncomplete.
  */
 export async function idbClearUserRecords(
   environment: StorageEnvironment,
@@ -251,13 +261,13 @@ export async function idbClearUserRecords(
         if (cursor) {
           cursor.delete();
           cursor.continue();
-        } else {
-          resolve();
         }
       };
 
       request.onerror = () => reject(request.error || new Error(`Cursor error on ${storeName}`));
+      tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error || new Error(`Transaction error during user clear on ${storeName}`));
+      tx.onabort = () => reject(new Error(`User clear transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }
@@ -268,6 +278,7 @@ export async function idbClearUserRecords(
  * Atomically synchronize records for a specific user namespace.
  * Deletes records belonging to userNamespace that are no longer present,
  * and saves/updates all current records.
+ * Resolves ONLY on transaction.oncomplete.
  */
 export async function idbSyncUserRecords<T extends { id: string }>(
   environment: StorageEnvironment,
@@ -303,6 +314,7 @@ export async function idbSyncUserRecords<T extends { id: string }>(
       request.onerror = () => reject(request.error || new Error(`Cursor error syncing ${storeName}`));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error || new Error(`Transaction error during user sync on ${storeName}`));
+      tx.onabort = () => reject(new Error(`User sync transaction aborted on ${storeName}`));
     } catch (err) {
       reject(err);
     }

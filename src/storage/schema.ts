@@ -1,14 +1,16 @@
 /**
  * CHIEF Client Storage Schema & Namespace Definitions
  * 
- * BATCH 13C.2A.1 IMMUTABLE SPECIFICATION:
- * - Version 2: Compound primary-key architecture [userNamespace, id] for strict per-user isolation.
- * - Single authoritative telemetry read cache remains memory/sessionStorage (telemetry_cache store removed).
+ * BATCH 13C.2A.2 IMMUTABLE SPECIFICATION:
+ * - Version 3: Stable physical IndexedDB names (chief_storage_prod / chief_storage_dev).
+ *   Physical DB name NEVER embeds schema version.
+ * - Compound primary keys ['userNamespace', 'id'] on offline_queue and worker_reports.
+ * - Single authoritative telemetry read cache remains memory/sessionStorage.
  * - Strict environment (PROD vs DEV) and authenticated user isolation.
  * - Sensitive credentials (tokens, secrets, passwords) are NEVER persisted.
  */
 
-export const STORAGE_SCHEMA_VERSION = 2;
+export const STORAGE_SCHEMA_VERSION = 3;
 
 export type StorageEnvironment = 'PROD' | 'DEV';
 
@@ -49,6 +51,10 @@ export function buildStorageNamespace(
   return `CHIEF:${environment}:${safeUserId}:v${schemaVersion}`;
 }
 
+/**
+ * Stable physical database name per environment.
+ * NEVER embed the schema version in the physical database name.
+ */
 export function getDatabaseName(environment: StorageEnvironment): string {
-  return `chief_storage_${environment.toLowerCase()}_v${STORAGE_SCHEMA_VERSION}`;
+  return `chief_storage_${environment.toLowerCase()}`;
 }

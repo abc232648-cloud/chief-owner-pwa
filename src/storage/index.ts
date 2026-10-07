@@ -181,7 +181,7 @@ export const reportStorage = {
     }
 
     try {
-      const ns = resolveUserNamespace(userId || report.workerId);
+      const ns = resolveUserNamespace(userId);
       const record: PersistedRecord<WorkerReportItem> = {
         userNamespace: ns,
         id: report.id,
