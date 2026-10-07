@@ -223,7 +223,11 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
               onClick={() => setShowCachedSources(!showCachedSources)}
               className="text-amber-400 underline hover:text-white shrink-0 text-[10px]"
             >
-              {showCachedSources ? 'Hide Sources ▲' : 'Inspect Cached Reads ▼'}
+              {showCachedSources 
+                ? 'Hide Sources ▲' 
+                : isDevMode 
+                  ? 'Inspect DEV Cache Fixtures ▼' 
+                  : 'Inspect Cached Reads ▼'}
             </button>
           </div>
         )}
@@ -232,23 +236,31 @@ export const OfflineQueueModal: React.FC<OfflineQueueModalProps> = ({
         {showCachedSources && (
           <div className="px-4 sm:px-6 py-3 bg-[#021008] border-b border-emerald-950/80 space-y-2 text-xs font-mono">
             <span className="text-emerald-400 uppercase tracking-wider text-[10px] font-bold block">
-              Safe Cached Reads In-Memory
+              {isDevMode 
+                ? 'DEVELOPMENT CACHE FIXTURE — NOT REAL TELEMETRY' 
+                : 'AUTHENTICATED CACHED READS IN-MEMORY'}
             </span>
-            <div className="space-y-1.5">
-              {cachedDataSources.map(ds => (
-                <div key={ds.key} className="p-2 rounded-lg bg-[#04190e] border border-emerald-950 flex items-center justify-between">
-                  <div>
-                    <span className="text-white text-xs block">{ds.label}</span>
-                    <span className="text-[10px] text-emerald-400/60">{ds.domain} • Cached: {ds.lastSyncFormatted}</span>
+            {cachedDataSources.length === 0 ? (
+              <p className="text-[11px] text-emerald-400/60 py-1">
+                No authenticated cached data sources available.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {cachedDataSources.map(ds => (
+                  <div key={ds.key} className="p-2 rounded-lg bg-[#04190e] border border-emerald-950 flex items-center justify-between">
+                    <div>
+                      <span className="text-white text-xs block">{ds.label}</span>
+                      <span className="text-[10px] text-emerald-400/60">{ds.domain} • Cached: {ds.lastSyncFormatted}</span>
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      ds.isStale ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-emerald-950 text-emerald-300'
+                    }`}>
+                      {ds.isStale ? 'STALE' : 'FRESH'}
+                    </span>
                   </div>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    ds.isStale ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-emerald-950 text-emerald-300'
-                  }`}>
-                    {ds.isStale ? 'STALE' : 'FRESH'}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

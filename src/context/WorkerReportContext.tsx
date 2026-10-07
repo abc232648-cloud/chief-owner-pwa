@@ -15,7 +15,8 @@ import { chiefApi, ChiefApiError } from '../api';
 
 import { isChiefDevMode } from '../config/devMode';
 
-const STORAGE_KEY = 'chief_worker_reports_v1';
+const STORAGE_KEY_PROD = 'chief_worker_reports_prod_v1';
+const STORAGE_KEY_DEV = 'chief_worker_reports_dev_v1';
 
 /**
  * Validates whether an error represents an explicit, authoritative Chief validation/policy rejection.
@@ -74,11 +75,11 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { state: chiefState } = useChief();
   const isDev = isChiefDevMode();
 
-  // Load from local storage or empty array in production
-  // BATCH 13B.3: Fresh production worker report store MUST be empty
+  // BATCH 13B.3.1: Separate environment-specific storage namespaces to prevent DEV leaks into production
   const [reports, setReports] = useState<WorkerReportItem[]>(() => {
+    const storageKey = isDev ? STORAGE_KEY_DEV : STORAGE_KEY_PROD;
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
         return JSON.parse(stored);
       }
@@ -97,12 +98,13 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Sync state to local storage whenever reports update
   useEffect(() => {
+    const storageKey = isDev ? STORAGE_KEY_DEV : STORAGE_KEY_PROD;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
+      localStorage.setItem(storageKey, JSON.stringify(reports));
     } catch {
       // Storage quota or private mode protection
     }
-  }, [reports]);
+  }, [reports, isDev]);
 
   // Count items queued offline
   const queuedCount = reports.filter(r => r.status === 'queued').length;
@@ -130,13 +132,16 @@ export const WorkerReportProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Genuine authenticated worker attribution (no fabricated default fallback)
     const workerId = user.userId;
     const workerName = user.name;
+    // BATCH 13B.3.1: Do not invent occupational job titles
     const workerRole = user.role === 'worker' 
-      ? 'Field Poultry Specialist' 
+      ? 'Worker' 
       : user.role === 'manager' 
-      ? 'Operations Manager' 
+      ? 'Manager' 
       : user.role === 'owner'
-      ? 'Farm Owner'
-      : 'Field Specialist';
+      ? 'Owner'
+      : user.role === 'viewer'
+      ? 'Viewer'
+      : 'Worker';
 
     // Step 1: Initialize in 'saved_locally' state
     const initialReport: WorkerReportItem = {

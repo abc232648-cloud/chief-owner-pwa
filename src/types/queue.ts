@@ -1,3 +1,5 @@
+import { WorkerReportItem } from './workerReport';
+
 export type QueueItemActionType = 
   | 'SUBMIT_WORKER_REPORT'
   | 'LOG_FLOCK_OBSERVATION'
@@ -37,6 +39,8 @@ export interface QueueItem {
   requiresUserIntervention: boolean;
   policyPermitted: boolean;
   payload: Record<string, any>;
+  payloadVersion?: number;
+  reportPayload?: WorkerReportItem;
   conflictDetails?: ConflictDetails;
   confirmedAt?: string;
   confirmationHash?: string;

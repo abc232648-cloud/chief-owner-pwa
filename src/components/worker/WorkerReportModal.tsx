@@ -153,14 +153,15 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
   };
 
   const handleAddEvidencePhoto = () => {
+    if (!isDevMode) return;
     const photoId = `att-${Date.now()}`;
     const newAtt: WorkerReportAttachment = {
       id: photoId,
-      name: `inspection_snap_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.jpg`,
+      name: `dev_simulated_snap_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.jpg`,
       type: 'image/jpeg',
       sizeBytes: 312000 + Math.floor(Math.random() * 50000),
       capturedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      watermarkText: `${mortalityHouse.slice(0, 7)} — ${user?.name || 'Unauthenticated'} — ${new Date().toLocaleTimeString()} — FIELD-VERIFIED`
+      watermarkText: `SIMULATED CAPTURE — DEV ONLY (${mortalityHouse.slice(0, 7)})`
     };
     setAttachments(prev => [...prev, newAtt]);
   };
@@ -282,6 +283,8 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
           title: `${WORKER_REPORT_CATEGORIES.find(c => c.id === selectedCategory)?.shortLabel}: ${summary.slice(0, 45)}`,
           domain: 'Farm Agent',
           payload: payloadData,
+          payloadVersion: 1,
+          reportPayload: res.report,
           isPolicyPermitted: true
         });
       }
@@ -1053,18 +1056,24 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                     <Camera className="w-4 h-4 text-emerald-400" />
                     <span>Evidence Attachments ({attachments.length})</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddEvidencePhoto}
-                    className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#0a2e1b] hover:bg-[#0f3d24] text-emerald-200 border border-emerald-800 flex items-center gap-1.5 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Camera Capture</span>
-                  </button>
+                  {isDevMode && (
+                    <button
+                      type="button"
+                      onClick={handleAddEvidencePhoto}
+                      className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-[#0a2e1b] hover:bg-[#0f3d24] text-emerald-200 border border-emerald-800 flex items-center gap-1.5 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Simulated Photo (DEV ONLY)</span>
+                    </button>
+                  )}
                 </div>
-                {attachments.length === 0 ? (
+                {!isDevMode ? (
+                  <div className="p-3 rounded-lg bg-[#021209] border border-emerald-950 text-xs font-mono text-emerald-400/70">
+                    Photo evidence requires camera/file upload capability. Synthetic evidence photos are disabled in production.
+                  </div>
+                ) : attachments.length === 0 ? (
                   <p className="text-[11px] text-emerald-400/50 font-mono">
-                    No photo attachments yet. Optional proof of inspection.
+                    No photo attachments yet. Optional simulated evidence capture for testing.
                   </p>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 font-mono text-xs">
@@ -1074,7 +1083,7 @@ export const WorkerReportModal: React.FC<WorkerReportModalProps> = ({
                           <ImageIcon className="w-4 h-4 text-emerald-400 shrink-0" />
                           <div className="truncate">
                             <span className="text-white text-xs block truncate">{att.name}</span>
-                            <span className="text-[10px] text-emerald-400/60 block">{att.watermarkText}</span>
+                            <span className="text-[10px] text-amber-400/80 block">{att.watermarkText}</span>
                           </div>
                         </div>
                         <button

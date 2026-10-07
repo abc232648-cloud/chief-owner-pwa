@@ -11,7 +11,8 @@ import { chiefApi, ChiefApiError } from '../api';
 import { WorkerReportItem } from '../types/workerReport';
 import { isChiefDevMode } from '../config/devMode';
 
-const QUEUE_STORAGE_KEY = 'chief_offline_queue_v2';
+const QUEUE_STORAGE_KEY_PROD = 'chief_offline_queue_prod_v2';
+const QUEUE_STORAGE_KEY_DEV = 'chief_offline_queue_dev_v2';
 const MAX_BOUNDED_RETRIES = 3;
 
 interface EnqueueOptions {
@@ -21,6 +22,8 @@ interface EnqueueOptions {
   payload: Record<string, any>;
   isPolicyPermitted: boolean;
   blockReasonIfUnsafe?: string;
+  payloadVersion?: number;
+  reportPayload?: WorkerReportItem;
 }
 
 interface OfflineQueueContextType {
@@ -48,16 +51,19 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const isDev = isChiefDevMode();
 
   // Load initial queue
-  // BATCH 13B.3: Fresh production offline queue MUST be empty!
+  // BATCH 13B.3.1: Environment-specific storage namespaces prevent DEV data leaking into production
   const [queue, setQueue] = useState<QueueItem[]>(() => {
+    const storageKey = isDev ? QUEUE_STORAGE_KEY_DEV : QUEUE_STORAGE_KEY_PROD;
     try {
-      const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {
       // ignore
     }
+    // Fresh production install MUST start empty
     if (!isDev) {
       return [];
     }
@@ -68,14 +74,15 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [lastSyncTimestamp, setLastSyncTimestamp] = useState<number>(Date.now() - 1000 * 60 * 12);
   const [networkOnline, setNetworkOnline] = useState<boolean>(navigator.onLine);
 
-  // Sync to localStorage
+  // Sync to localStorage using environment-specific key
   useEffect(() => {
+    const storageKey = isDev ? QUEUE_STORAGE_KEY_DEV : QUEUE_STORAGE_KEY_PROD;
     try {
-      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+      localStorage.setItem(storageKey, JSON.stringify(queue));
     } catch {
       // ignore
     }
-  }, [queue]);
+  }, [queue, isDev]);
 
   // Online / Offline window listeners
   useEffect(() => {
@@ -97,10 +104,14 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const pendingCount = queue.filter(q => q.status === 'pending' || q.status === 'failed_transient').length;
   const conflictCount = queue.filter(q => q.status === 'conflict').length;
 
-  const cachedDataSources: CachedDataSource[] = [
+  // BATCH 13B.3.1 Requirement 2: Remove fake cached data sources from production
+  // Production cachedDataSources must reflect only genuine cached Chief resources.
+  // If none exist: cachedDataSources = []
+  // DEV: Synthetic cached-source examples clearly labelled DEVELOPMENT CACHE FIXTURE — NOT REAL TELEMETRY
+  const cachedDataSources: CachedDataSource[] = isDev ? [
     {
       key: 'flock_telemetry',
-      label: 'House 1 & 2 Poultry Telemetry (Temp, NH3, Drinker Line)',
+      label: 'House 1 & 2 Poultry Telemetry [DEV FIXTURE]',
       domain: 'Farm Agent',
       cachedAtTimestamp: lastSyncTimestamp,
       lastSyncFormatted: '12m ago (Simulated Sensor Snap)',
@@ -109,7 +120,7 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
     },
     {
       key: 'interlock_status',
-      label: 'Zone B Pressure Relief Interlock Hardware Register',
+      label: 'Zone B Pressure Relief Interlock Hardware Register [DEV FIXTURE]',
       domain: 'Farm Agent',
       cachedAtTimestamp: lastSyncTimestamp,
       lastSyncFormatted: '12m ago',
@@ -118,14 +129,14 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
     },
     {
       key: 'job_applications',
-      label: 'Application Lifecycle State Machine & Decision Registry',
+      label: 'Application Lifecycle State Machine & Decision Registry [DEV FIXTURE]',
       domain: 'Job Agent',
       cachedAtTimestamp: lastSyncTimestamp,
       lastSyncFormatted: '12m ago',
       isStale: isDataStale,
       staleAfterMs: 1000 * 60 * 10
     }
-  ];
+  ] : [];
 
   // Enqueue an action — CRITICAL SAFETY CHECK: NEVER QUEUE BLINDLY
   const enqueueAction = useCallback((options: EnqueueOptions): { success: boolean; item?: QueueItem; error?: string } => {
@@ -156,6 +167,8 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       requiresUserIntervention: false,
       policyPermitted: true,
       payload: options.payload,
+      payloadVersion: options.payloadVersion ?? (options.reportPayload ? 1 : undefined),
+      reportPayload: options.reportPayload,
       workerAttribution: {
         userId: user.userId,
         userName: user.name,
@@ -235,31 +248,40 @@ export const OfflineQueueProvider: React.FC<{ children: React.ReactNode }> = ({ 
       return false;
     }
 
+    // BATCH 13B.3.1 Requirement 3: Preserve the exact offline worker-report payload
+    // If an old queue item lacks the required exact payload:
+    // do not guess or infer/default the category (no defaulting category = 'water');
+    // mark it failed_permanent;
+    // state: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
+    if (!item.reportPayload) {
+      setQueue(prev => prev.map(q => 
+        q.id === id 
+          ? {
+              ...q,
+              status: 'failed_permanent',
+              requiresUserIntervention: true,
+              lastFailure: 'Legacy queued payload cannot be replayed safely. No Chief decision was made.'
+            }
+          : q
+      ));
+      return false;
+    }
+
     // Set status to syncing in-flight
     setQueue(prev => prev.map(q => 
       q.id === id ? { ...q, status: 'syncing' } : q
     ));
 
     try {
-      // Construct real payload with genuine authenticated worker attribution
-      const reportPayload: WorkerReportItem = {
-        id: item.id,
-        reportNumber: `RPT-SYNC-${item.id.slice(-4)}`,
-        category: (item.payload.category as any) || 'water',
+      // Submit the original report payload unchanged except for fields explicitly allowed to change,
+      // such as retry counters or transport metadata
+      const replayPayload: WorkerReportItem = {
+        ...item.reportPayload,
         status: 'syncing',
-        createdAt: item.createdAt,
-        timestampFormatted: item.timestampFormatted,
-        workerId: item.workerAttribution.userId,
-        workerName: item.workerAttribution.userName,
-        workerRole: item.workerAttribution.role,
-        categoryLabel: item.title,
-        summary: item.title,
-        data: item.payload,
-        evidenceAttachments: [],
         syncAttempts: item.retryCount + 1
       };
 
-      const res = await chiefApi.farm.submitWorkerReport(reportPayload);
+      const res = await chiefApi.farm.submitWorkerReport(replayPayload);
 
       // BATCH 13B.3 Requirement 8: Offline replay requires positive backend acceptance
       // Require status === 'accepted' AND valid backend verification/receipt identifier.
