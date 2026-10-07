@@ -1,16 +1,16 @@
 /**
  * CHIEF Client Storage Schema & Namespace Definitions
- * 
- * BATCH 13C.2A.2 IMMUTABLE SPECIFICATION:
- * - Version 3: Stable physical IndexedDB names (chief_storage_prod / chief_storage_dev).
- *   Physical DB name NEVER embeds schema version.
+ *
+ * BATCH 13C.2A.2 SAFETY REPAIR:
+ * - Version 4: stable physical IndexedDB names plus corrected two-phase legacy migration.
+ * - Physical DB name NEVER embeds schema version.
  * - Compound primary keys ['userNamespace', 'id'] on offline_queue and worker_reports.
  * - Single authoritative telemetry read cache remains memory/sessionStorage.
  * - Strict environment (PROD vs DEV) and authenticated user isolation.
  * - Sensitive credentials (tokens, secrets, passwords) are NEVER persisted.
  */
 
-export const STORAGE_SCHEMA_VERSION = 3;
+export const STORAGE_SCHEMA_VERSION = 4;
 
 export type StorageEnvironment = 'PROD' | 'DEV';
 
@@ -21,8 +21,8 @@ export const STORE_NAMES = {
 } as const;
 
 export interface PersistedRecord<T> {
-  userNamespace: string; // Stable authenticated userId, 'unauthenticated', or 'unauthenticated-legacy'
-  id: string;            // Record ID
+  userNamespace: string; // Stable authenticated userId or an explicitly quarantined legacy namespace.
+  id: string;
   environment: StorageEnvironment;
   schemaVersion: number;
   data: T;
@@ -39,7 +39,7 @@ export interface StorageMetadataRecord {
 }
 
 /**
- * Constructs the canonical storage namespace for the given user and environment.
+ * Constructs the canonical logical storage namespace for the given user and environment.
  * Format: CHIEF:{ENV}:{USER_ID}:v{SCHEMA_VERSION}
  */
 export function buildStorageNamespace(
