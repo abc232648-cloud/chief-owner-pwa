@@ -5,14 +5,14 @@ export class ChiefApiClient {
 
   constructor(config: Partial<ApiClientConfig> = {}) {
     this.config = {
-      baseUrl: config.baseUrl || 
-        (typeof window !== 'undefined' && (window as any).__CHIEF_API_URL__) || 
-        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CHIEF_API_BASE_URL) || 
+      baseUrl: config.baseUrl ||
+        (typeof window !== 'undefined' && (window as any).__CHIEF_API_URL__) ||
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_CHIEF_API_BASE_URL) ||
         '/api/v1',
       timeoutMs: config.timeoutMs ?? 8000,
       getAuthTokenRef: config.getAuthTokenRef,
       defaultHeaders: config.defaultHeaders || {
-        'Accept': 'application/json',
+        Accept: 'application/json',
         'Content-Type': 'application/json'
       }
     };
@@ -27,65 +27,48 @@ export class ChiefApiClient {
   }
 
   private generateCorrelationId(): string {
+    // Request tracing identifier only. This is not a receipt, transaction ID, signature or evidence hash.
     return `cid_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
   }
 
-  /**
-   * Core request executor with timeout, abort handling, correlation IDs, safe retry, and error normalization.
-   */
-  public async request<T>(
-    endpoint: string,
-    options: RequestOptions = {}
-  ): Promise<ApiResponse<T>> {
+  public async request<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
     const correlationId = options.correlationId || this.generateCorrelationId();
-    const url = endpoint.startsWith('http') ? endpoint : `${this.config.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    const url = endpoint.startsWith('http')
+      ? endpoint
+      : `${this.config.baseUrl}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
     const timeoutMs = options.timeoutMs ?? this.config.timeoutMs;
-    const maxRetries = options.isIdempotent ? (options.maxRetries ?? 1) : 0; // Strict: only retry idempotent calls
+    const maxRetries = options.isIdempotent ? (options.maxRetries ?? 1) : 0;
 
     let attempt = 0;
     while (true) {
-      attempt++;
+      attempt += 1;
       const controller = new AbortController();
-      let isTimeoutTriggered = false;
-
-      // Combine caller's signal and our timeout signal
+      let timeoutTriggered = false;
       const timeoutId = setTimeout(() => {
-        isTimeoutTriggered = true;
+        timeoutTriggered = true;
         controller.abort();
       }, timeoutMs);
 
       if (options.signal) {
-        options.signal.addEventListener('abort', () => controller.abort());
+        options.signal.addEventListener('abort', () => controller.abort(), { once: true });
       }
 
-      // Build headers
       const headers = new Headers(this.config.defaultHeaders);
       if (options.headers) {
         new Headers(options.headers).forEach((value, key) => headers.set(key, value));
       }
       headers.set('X-Correlation-ID', correlationId);
 
-      // Attach auth token reference if available and not skipped
       if (!options.skipAuth && this.config.getAuthTokenRef) {
         const tokenRef = this.config.getAuthTokenRef();
-        if (tokenRef) {
-          headers.set('Authorization', `Bearer ${tokenRef}`);
-        }
+        if (tokenRef) headers.set('Authorization', `Bearer ${tokenRef}`);
       }
 
       try {
-        const response = await fetch(url, {
-          ...options,
-          headers,
-          signal: controller.signal
-        });
-
+        const response = await fetch(url, { ...options, headers, signal: controller.signal });
         clearTimeout(timeoutId);
-
-        // Parse correlation ID from response headers if returned by Chief backend
         const returnedCorrelationId = response.headers.get('X-Correlation-ID') || correlationId;
 
-        // Handle HTTP error responses
         if (!response.ok) {
           let errorPayload: any = null;
           try {
@@ -98,21 +81,18 @@ export class ChiefApiClient {
             }
           }
 
-          const errorMessage = 
-            errorPayload?.message || 
-            errorPayload?.error || 
-            `Chief API request failed with status ${response.status} (${response.statusText})`;
-
           throw new ChiefApiError({
-            message: errorMessage,
+            message: errorPayload?.message || errorPayload?.error || `Chief API request failed with status ${response.status} (${response.statusText})`,
             code: errorPayload?.code || `HTTP_${response.status}`,
             statusCode: response.status,
             correlationId: returnedCorrelationId,
+            // The browser received an actual HTTP response from the configured Chief endpoint.
+            // This distinguishes Chief-origin rejection from client validation and transport failure.
+            origin: 'chief',
             details: errorPayload
           });
         }
 
-        // Safe JSON decoding
         let data: T;
         const contentType = response.headers.get('Content-Type') || '';
         if (contentType.includes('application/json')) {
@@ -134,21 +114,19 @@ export class ChiefApiClient {
       } catch (err: unknown) {
         clearTimeout(timeoutId);
 
-        const isAbortedByCaller = Boolean(options.signal?.aborted);
-        // If caller explicitly cancelled, throw immediately without retries
-        if (isAbortedByCaller) {
+        if (options.signal?.aborted) {
           throw new ChiefApiError({
             message: 'Request was cancelled by the client',
             code: 'REQUEST_ABORTED',
             correlationId,
-            isAborted: true
+            isAborted: true,
+            origin: 'client'
           });
         }
 
-        // If timed out
-        if (isTimeoutTriggered) {
+        if (timeoutTriggered) {
           if (attempt <= maxRetries) {
-            await new Promise(r => setTimeout(r, 300 * attempt));
+            await new Promise(resolve => setTimeout(resolve, 300 * attempt));
             continue;
           }
           throw new ChiefApiError({
@@ -159,38 +137,27 @@ export class ChiefApiClient {
           });
         }
 
-        // If already structured ChiefApiError, throw
-        if (err instanceof ChiefApiError) {
-          throw err;
-        }
+        if (err instanceof ChiefApiError) throw err;
 
-        // Network failure (fetch failed / offline)
         if (attempt <= maxRetries) {
-          await new Promise(r => setTimeout(r, 400 * attempt));
+          await new Promise(resolve => setTimeout(resolve, 400 * attempt));
           continue;
         }
 
-        const isNetworkErr = err instanceof TypeError || (err as any)?.name === 'TypeError';
+        const networkError = err instanceof TypeError || (err as any)?.name === 'TypeError';
         throw new ChiefApiError({
-          message: isNetworkErr 
-            ? 'Network unavailable or Chief backend unreachable' 
-            : (err as Error)?.message || 'Unknown network error',
-          code: isNetworkErr ? 'NETWORK_UNAVAILABLE' : 'TRANSPORT_ERROR',
+          message: networkError ? 'Network unavailable or Chief backend unreachable' : (err as Error)?.message || 'Unknown transport error',
+          code: networkError ? 'NETWORK_UNAVAILABLE' : 'TRANSPORT_ERROR',
           correlationId,
-          isNetworkError: isNetworkErr,
+          isNetworkError: networkError,
           details: err
         });
       }
     }
   }
 
-  // Convenient HTTP Verb wrappers
   public get<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'GET',
-      isIdempotent: true // Safe to retry GET
-    });
+    return this.request<T>(endpoint, { ...options, method: 'GET', isIdempotent: true });
   }
 
   public post<T>(endpoint: string, body?: unknown, options: RequestOptions = {}): Promise<ApiResponse<T>> {
@@ -198,7 +165,7 @@ export class ChiefApiClient {
       ...options,
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      isIdempotent: false // Mutations never automatically retried
+      isIdempotent: false
     });
   }
 
@@ -212,10 +179,6 @@ export class ChiefApiClient {
   }
 
   public delete<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'DELETE',
-      isIdempotent: false
-    });
+    return this.request<T>(endpoint, { ...options, method: 'DELETE', isIdempotent: false });
   }
 }
