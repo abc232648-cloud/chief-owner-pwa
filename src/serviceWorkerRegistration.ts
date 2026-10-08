@@ -1,8 +1,6 @@
 /**
- * CHIEF PWA Service Worker Registration & Lifecycle Manager
- *
- * Production Owner Mobile is deliberately scoped to /owner/ so it cannot
- * intercept Staff (/staff/) or Chief API (/api/) traffic.
+ * CHIEF PWA Service Worker Registration & Lifecycle Manager.
+ * Production Owner Mobile is scoped to /owner/ and retires any legacy root worker.
  */
 
 import { isChiefDevMode } from './config/devMode';
@@ -16,61 +14,73 @@ let activeRegistration: ServiceWorkerRegistration | null = null;
 let isUpdateAvailable = false;
 const updateListeners: Array<(updateAvailable: boolean) => void> = [];
 
+async function retireLegacyRootWorker(): Promise<void> {
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  for (const reg of registrations) {
+    const script = reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || '';
+    const scopePath = new URL(reg.scope).pathname;
+    if (scopePath === '/' && script.endsWith('/sw.js')) await reg.unregister();
+  }
+  if ('caches' in window) {
+    const cacheNames = await caches.keys();
+    for (const name of cacheNames) {
+      if (name.startsWith('chief-static-')) await caches.delete(name);
+    }
+  }
+}
+
 export function registerServiceWorker(config?: ServiceWorkerRegistrationConfig): void {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
   const base = import.meta.env.BASE_URL;
 
-  if (isChiefDevMode()) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (const reg of registrations) {
-          if (reg.active?.scriptURL?.includes('/owner/sw.js')) void reg.unregister();
-        }
-      }).catch(() => {});
-
-      if ('caches' in window) {
-        caches.keys().then((cacheNames) => {
-          for (const name of cacheNames) {
-            if (name.startsWith('chief-owner-static-')) void caches.delete(name).catch(() => {});
-          }
-        }).catch(() => {});
-      }
-    });
-    return;
-  }
-
   window.addEventListener('load', () => {
-    if (base !== '/owner/') {
-      console.warn('[Chief Service Worker] Owner production base path mismatch; registration refused.');
-      return;
-    }
-    navigator.serviceWorker.register(`${base}sw.js`, { scope: base })
-      .then((registration) => {
-        activeRegistration = registration;
-        if (registration.waiting) {
-          isUpdateAvailable = true;
-          notifyUpdateListeners(true);
-          config?.onUpdate?.(registration);
-        }
-        registration.onupdatefound = () => {
-          const installingWorker = registration.installing;
-          if (!installingWorker) return;
-          installingWorker.onstatechange = () => {
-            if (installingWorker.state === 'installed') {
-              if (navigator.serviceWorker.controller) {
-                isUpdateAvailable = true;
-                notifyUpdateListeners(true);
-                config?.onUpdate?.(registration);
-              } else {
-                config?.onSuccess?.(registration);
-              }
+    void (async () => {
+      try { await retireLegacyRootWorker(); } catch {}
+      if (isChiefDevMode()) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            if ((reg.active?.scriptURL || '').includes('/owner/sw.js')) await reg.unregister();
+          }
+          if ('caches' in window) {
+            for (const name of await caches.keys()) {
+              if (name.startsWith('chief-owner-static-')) await caches.delete(name);
             }
+          }
+        } catch {}
+        return;
+      }
+
+      if (base !== '/owner/') {
+        console.warn('[Chief Service Worker] Owner production base path mismatch; registration refused.');
+        return;
+      }
+      navigator.serviceWorker.register(`${base}sw.js`, { scope: base })
+        .then((registration) => {
+          activeRegistration = registration;
+          if (registration.waiting) {
+            isUpdateAvailable = true;
+            notifyUpdateListeners(true);
+            config?.onUpdate?.(registration);
+          }
+          registration.onupdatefound = () => {
+            const installingWorker = registration.installing;
+            if (!installingWorker) return;
+            installingWorker.onstatechange = () => {
+              if (installingWorker.state === 'installed') {
+                if (navigator.serviceWorker.controller) {
+                  isUpdateAvailable = true;
+                  notifyUpdateListeners(true);
+                  config?.onUpdate?.(registration);
+                } else {
+                  config?.onSuccess?.(registration);
+                }
+              }
+            };
           };
-        };
-      })
-      .catch((error) => {
-        console.warn('[Chief Service Worker] Registration failed:', error);
-      });
+        })
+        .catch((error) => console.warn('[Chief Service Worker] Registration failed:', error));
+    })();
   });
 }
 
