@@ -20,6 +20,7 @@ export default defineConfig(() => {
   const isAiStudioDevContainer = process.env.DISABLE_HMR === 'true';
 
   return {
+    base: '/owner/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
