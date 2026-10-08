@@ -22,7 +22,7 @@ export type UserCapability =
   | 'can_submit_worker_report';
 
 export interface UserCredentials {
-  email: string;
+  username: string;
   password: string;
 }
 
@@ -32,11 +32,14 @@ export interface UserSession {
   email: string;
   role: UserRole;
   capabilities: UserCapability[];
-  sessionExpiresAt: number; // Unix timestamp in ms
-  sessionTokenRef: string; // Sanitized opaque reference, never raw token/secret
+  sessionExpiresAt: number;
+  sessionTokenRef: string;
   authAuthority: string;
   lastAuthenticated: string;
   isSimulated?: boolean;
+  backendRole?: string;
+  domains?: string[];
+  sessionId?: string;
 }
 
 export interface AuthError {
