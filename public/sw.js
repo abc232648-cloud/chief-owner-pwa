@@ -1,7 +1,7 @@
-// CHIEF Mobile - Conservative PWA Service Worker
-// Version: chief-static-v1
+// CHIEF Job Agent PWA - Conservative Service Worker
+// Version: chief-job-static-v1
 
-const CACHE_VERSION = 'chief-static-v1';
+const CACHE_VERSION = 'chief-job-static-v1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -13,73 +13,90 @@ const STATIC_ASSETS = [
   '/apple-touch-icon.png'
 ];
 
-// Installation: Pre-cache static shell assets
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
+  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(STATIC_ASSETS)));
 });
 
-// Activation: Clean up old Chief static caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          // Only clean obsolete Chief static caches; do NOT delete unrelated origin caches
-          if (cacheName.startsWith('chief-static-') && cacheName !== CACHE_VERSION) {
-            return caches.delete(cacheName);
+    caches.keys().then((cacheNames) => Promise.all(
+      cacheNames.map((cacheName) => {
+        if ((cacheName.startsWith('chief-static-') || cacheName.startsWith('chief-job-static-')) && cacheName !== CACHE_VERSION) {
+          return caches.delete(cacheName);
+        }
+        return Promise.resolve(false);
+      })
+    )).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; }
+  catch { payload = {}; }
+
+  const severity = payload.severity === 'URGENT' ? 'URGENT' : payload.severity === 'ACTION_REQUIRED' ? 'ACTION_REQUIRED' : 'INFO';
+  const title = typeof payload.title === 'string' && payload.title.trim() ? payload.title.slice(0, 160) : 'Job Agent';
+  const body = typeof payload.body === 'string' ? payload.body.slice(0, 500) : 'New Job Agent activity.';
+
+  event.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon: '/pwa-192x192.png',
+    badge: '/pwa-192x192.png',
+    tag: severity === 'URGENT' ? 'job-agent-urgent' : 'job-agent-action',
+    renotify: severity === 'URGENT',
+    requireInteraction: severity === 'URGENT',
+    data: { url: '/#/' }
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL('/#/', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        try {
+          const current = new URL(client.url);
+          if (current.origin === self.location.origin) {
+            if ('focus' in client) return client.focus();
           }
-          return Promise.resolve(false);
-        })
-      );
-    }).then(() => {
-      return self.clients.claim();
+        } catch { /* ignore malformed client URL */ }
+      }
+      return self.clients.openWindow ? self.clients.openWindow(target) : undefined;
     })
   );
 });
 
-// Fetch interception: Strict safety rules
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // IMMUTABLE RULE: NEVER intercept or cache API requests
-  // Network-only for all /api/ endpoints. No synthetic 200 responses, no mutation caching.
+  // API remains network-only. Never cache authenticated Job Agent state or mutations.
   if (url.pathname.startsWith('/api/') || url.pathname.includes('/api/')) {
     event.respondWith(fetch(request));
     return;
   }
 
-  // IMMUTABLE RULE: All mutation methods (POST, PUT, DELETE, PATCH) pass directly to network
   if (request.method !== 'GET') {
     event.respondWith(fetch(request));
     return;
   }
 
-  // Navigation requests: Network-first with offline fallback to cached index.html
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
-          // If valid response, update shell cache in background
           if (networkResponse && networkResponse.status === 200) {
             const responseClone = networkResponse.clone();
-            caches.open(CACHE_VERSION).then((cache) => {
-              cache.put('/index.html', responseClone);
-            });
+            caches.open(CACHE_VERSION).then((cache) => cache.put('/index.html', responseClone));
           }
           return networkResponse;
         })
         .catch(async () => {
-          // Offline fallback: serve cached index.html shell
           const cachedShell = await caches.match('/index.html');
-          if (cachedShell) {
-            return cachedShell;
-          }
-          return new Response('CHIEF Operational Command - Offline Shell Unavailable', {
+          if (cachedShell) return cachedShell;
+          return new Response('CHIEF Job Agent - Offline shell unavailable', {
             status: 503,
             headers: { 'Content-Type': 'text/plain' }
           });
@@ -88,32 +105,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Same-origin static asset requests: Cache-First with Network Fallback
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
         if (cachedResponse) {
-          // Fetch updated asset in background for subsequent visits (stale-while-revalidate for hashed bundles)
           fetch(request).then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_VERSION).then((cache) => {
-                cache.put(request, networkResponse);
-              });
+              caches.open(CACHE_VERSION).then((cache) => cache.put(request, networkResponse));
             }
-          }).catch(() => {
-            // Network failure during background refresh is benign
-          });
+          }).catch(() => {});
           return cachedResponse;
         }
 
         return fetch(request).then((networkResponse) => {
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-            return networkResponse;
-          }
+          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') return networkResponse;
           const responseToCache = networkResponse.clone();
-          caches.open(CACHE_VERSION).then((cache) => {
-            cache.put(request, responseToCache);
-          });
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, responseToCache));
           return networkResponse;
         });
       })
@@ -121,13 +128,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cross-origin resources (e.g. fonts): Network first
   event.respondWith(fetch(request));
 });
 
-// Update communication: Handle explicit update requests safely
 self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
