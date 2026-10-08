@@ -59,11 +59,22 @@ export interface ChiefWorkerReportPayload {
 export interface ChiefWorkerReportRecord { version: 1; payload: ChiefWorkerReportPayload; actor_id: string; session_id: string; received_at: string; evidence_status: 'HUMAN_REPORTED'; }
 export interface FarmWorkerReportOverview { reports: ChiefWorkerReportRecord[]; total: number; next_offset: number | null; notice: string; }
 
+// Compatibility shape for the retired Owner-side worker-report caller. The adapter
+// always rejects this method client-side; the shape exists only so old queue records
+// compile while they are migrated away from Owner Mobile.
+export interface BlockedOwnerReportReceipt {
+  status: 'accepted';
+  verificationHash: string;
+  reportId: string;
+  timestamp: string;
+  transactionId: string;
+}
+
 export interface IFarmContract {
   getTasks(signal?: AbortSignal): Promise<ApiResponse<FarmTaskOverview>>;
   getIncidents(signal?: AbortSignal): Promise<ApiResponse<FarmIncidentOverview>>;
   getWorkerReports(signal?: AbortSignal): Promise<ApiResponse<FarmWorkerReportOverview>>;
-  submitWorkerReport(report: WorkerReportItem, signal?: AbortSignal): Promise<never>;
+  submitWorkerReport(report: WorkerReportItem, signal?: AbortSignal): Promise<ApiResponse<BlockedOwnerReportReceipt>>;
 }
 
 export class FarmApiAdapter implements IFarmContract {
@@ -81,10 +92,7 @@ export class FarmApiAdapter implements IFarmContract {
     return this.client.get<FarmWorkerReportOverview>('/api/farm/worker-reports', { signal });
   }
 
-  public async submitWorkerReport(_report: WorkerReportItem, _signal?: AbortSignal): Promise<never> {
-    // Owner Mobile's legacy report form does not implement Chief's immutable field-report
-    // contract and must never translate or invent evidence fields. Staff PWA is the field
-    // evidence surface. Owner Mobile consumes the authoritative Chief report ledger.
+  public async submitWorkerReport(_report: WorkerReportItem, _signal?: AbortSignal): Promise<ApiResponse<BlockedOwnerReportReceipt>> {
     throw new ChiefApiError({
       message: 'Owner Mobile does not submit worker evidence. Use Staff PWA for field reporting; Owner reads Chief-received reports here.',
       code: 'OWNER_FIELD_REPORT_BLOCKED',
