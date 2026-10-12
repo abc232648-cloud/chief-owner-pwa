@@ -1,5 +1,6 @@
 export type StatusMessageOption =
   | "System operational"
+  | "System state observed"
   | "Attention required"
   | "Limited connectivity"
   | "Backend unavailable"
@@ -27,6 +28,7 @@ export interface AttentionItem {
   status: "pending" | "approved" | "rejected" | "acknowledged";
   canOverrideMobile?: boolean;
   policyNote?: string;
+  actionable?: boolean;
   submissionState?: "idle" | "in_flight" | "confirmed" | "failed";
   submissionError?: string;
 }
@@ -72,7 +74,7 @@ export interface AgentState {
   lastActivity?: AgentLastActivity;
   simulation_warning?: string;
   lastHeartbeat: string;
-  activeWorkflows: number;
+  activeWorkflows: number | null;
   description: string;
   summary?: string;
   blockersCount?: number;
@@ -122,16 +124,16 @@ export type SynchronizationStatus = "current" | "pending" | "stale" | "not_synch
 
 export interface SystemMetrics {
   backend: "Online" | "Degraded" | "Offline";
-  policy_engine: "Active" | "Bypassed" | "Validating";
+  policy_engine: "Active" | "Bypassed" | "Validating" | "Unknown";
   sync: "Current" | "Pending" | "Stale";
   agents_active: number;
   uptime: string;
-  healthScore: number;
+  healthScore: number | null;
   lastSyncTimestamp: string;
 }
 
 export interface ChiefState {
-  platform_state: "Running" | "Attention" | "Paused" | "Maintenance";
+  platform_state: "Running" | "Attention" | "Paused" | "Maintenance" | "Unknown";
   status_message: StatusMessageOption;
   connectivity: ConnectivityMode;
   pendingSyncCount: number;
