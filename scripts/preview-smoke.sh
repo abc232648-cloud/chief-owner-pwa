@@ -38,17 +38,18 @@ for route in '#/agents' '#/inbox' '#/more'; do
   curl -fsS "${BASE_URL}/${route}" | grep -q "CHIEF Operational Command"
 done
 
-BROWSER_BIN=""
+BROWSER_BIN="${CHIEF_BROWSER_EXECUTABLE:-}"
 for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+  if [ -n "${BROWSER_BIN}" ]; then break; fi
   if command -v "${candidate}" >/dev/null 2>&1; then BROWSER_BIN="$(command -v "${candidate}")"; break; fi
 done
 if [ -z "${BROWSER_BIN}" ]; then echo "ERROR: No Chrome/Chromium browser found on the CI runner."; exit 1; fi
 
 "${BROWSER_BIN}" \
-  --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+  --headless=new --disable-gpu --disable-dev-shm-usage \
   --virtual-time-budget=2500 --dump-dom "${BASE_URL}/" >"${BROWSER_DOM}" 2>/dev/null
 
-python3 - "${BROWSER_DOM}" <<'PY'
+"${CHIEF_TEST_PYTHON:-python3}" - "${BROWSER_DOM}" <<'PY'
 import pathlib
 import re
 import sys

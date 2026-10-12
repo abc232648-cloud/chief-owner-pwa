@@ -1,6 +1,8 @@
+const BUILD_ID = 'development';
+const BUILD_ASSETS = [];
 // CHIEF Owner Mobile - Conservative scoped PWA Service Worker
 const CACHE_PREFIX = 'chief-owner-static-';
-const CACHE_VERSION = `${CACHE_PREFIX}v2`;
+const CACHE_VERSION = `${CACHE_PREFIX}${BUILD_ID}`;
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const shell = suffix => `${SCOPE_PATH}${suffix}`;
 const STATIC_ASSETS = [
@@ -15,7 +17,7 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_VERSION).then(cache => cache.addAll(STATIC_ASSETS)));
+  event.waitUntil(caches.open(CACHE_VERSION).then(cache => cache.addAll(STATIC_ASSETS.concat(BUILD_ASSETS))));
 });
 
 self.addEventListener('activate', (event) => {
@@ -88,4 +90,16 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+// Device alerts contain no private payload and never open an arbitrary URL.
+self.addEventListener('push', event => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { /* Generic fallback. */ }
+  const tag = typeof payload.tag === 'string' && /^chief-device-[0-9]+$/.test(payload.tag) ? payload.tag : 'chief-device-update';
+  event.waitUntil(self.registration.showNotification('Chief update', { body: 'Sign in to view your update.', tag, data: { url: '/owner/' } }));
+});
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(self.clients.openWindow('/owner/'));
 });

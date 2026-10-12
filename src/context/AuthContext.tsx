@@ -1,3 +1,4 @@
+import { watchSession } from '../auth/sessionActivity';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { AuthStatus, UserSession, UserRole, UserCapability, AuthError, UserCredentials } from '../types/auth';
 import { isChiefDevMode } from '../config/devMode';
@@ -94,6 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const acceptSession = useCallback((session: ChiefAuthSession): boolean => {
     const mapped = ownerSession(session);
     if (!mapped) {
+      clearLiveCache(); StoragePrivacyManager.handleLogout();
       setUser(null); setCsrf(null); setStatus('unauthorized');
       setError({ code: 'OWNER_ROLE_REQUIRED', message: 'This Chief identity is authenticated but is not an Owner/Administrator identity authorized for Owner Mobile.' });
       return false;
@@ -130,16 +132,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (devMode || status !== 'authenticated' || !csrf) return;
-    const timer = window.setInterval(() => {
-      void chiefAuthApi.activity(csrf).catch(cause => {
-        if (cause instanceof ChiefAuthError && cause.status === 401) {
-          setUser(null); setCsrf(null); clearLiveCache(); StoragePrivacyManager.handleLogout();
-          setStatus('unauthenticated'); setError({ code: 'SESSION_EXPIRED', message: 'Chief session expired. Sign in again.' });
-        }
-      });
-    }, 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [csrf, devMode, status]);
+    const expired = (cause: unknown) => {
+      if (cause instanceof ChiefAuthError && cause.status === 401) {
+        setUser(null); setCsrf(null); clearLiveCache(); StoragePrivacyManager.handleLogout();
+        setStatus('unauthenticated'); setError({ code: 'SESSION_EXPIRED', message: 'Chief session expired. Sign in again.' });
+      }
+    };
+    return watchSession(
+      () => chiefAuthApi.activity(csrf).catch(expired),
+      () => chiefAuthApi.session().then(acceptSession).catch(expired)
+    );
+  }, [acceptSession, csrf, devMode, status]);
 
   const login = async (credentialsOrRole?: UserRole | UserCredentials): Promise<boolean> => {
     setStatus('authenticating'); setError(null);
