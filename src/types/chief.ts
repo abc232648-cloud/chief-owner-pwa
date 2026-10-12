@@ -74,7 +74,7 @@ export interface AgentState {
   lastActivity?: AgentLastActivity;
   simulation_warning?: string;
   lastHeartbeat: string;
-  activeWorkflows: number | null;
+  activeWorkflows: number | string;
   description: string;
   summary?: string;
   blockersCount?: number;
