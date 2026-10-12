@@ -22,10 +22,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const displayItems = items.slice(0, 4);
 
   const badgeText = 
-    isLive ? 'Authoritative Audit Log' :
-    isCached ? 'Cached Audit Snapshot' :
+    isLive ? 'Chief Activity Records' :
+    isCached ? 'Cached Activity Snapshot' :
     isMock ? 'Simulated Activity Log' :
-    'Audit Log Unavailable';
+    'Activity Unavailable';
 
   const badgeStyle = 
     isLive ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/50' :
@@ -51,8 +51,10 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
           </div>
           <p className="text-xs text-emerald-300/60">
             {isUnavailable 
-              ? 'Chief audit log unreachable from backend server'
-              : 'Immutable log of agent decisions and policy evaluations'}
+              ? 'Chief activity records are unreachable from backend'
+              : isLive
+              ? 'Read-only projection of activity fields reported by Chief'
+              : 'Previously retrieved or simulated activity records'}
           </p>
         </div>
         <button
@@ -64,12 +66,11 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
         </button>
       </div>
 
-      {/* Activity List */}
       {displayItems.length === 0 ? (
         <div className="py-6 text-center text-xs font-mono text-emerald-400/50">
           {isUnavailable 
-            ? 'Chief activity log currently unavailable from backend' 
-            : 'No recent events recorded • Policy engine idle'}
+            ? 'Chief activity records currently unavailable from backend' 
+            : 'No recent activity records reported'}
         </div>
       ) : (
         <div className="divide-y divide-emerald-950/80">
@@ -97,8 +98,12 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                     </p>
                     <p className="text-[11px] text-emerald-400/50 font-mono mt-0.5 flex items-center gap-2">
                       <span>{item.agent}</span>
-                      <span aria-hidden="true">•</span>
-                      <span className="truncate max-w-[120px]">{item.hash}</span>
+                      {item.hash && (
+                        <>
+                          <span aria-hidden="true">•</span>
+                          <span className="truncate max-w-[120px]">{item.hash}</span>
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -106,12 +111,12 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 <div className="shrink-0 flex items-center pt-0.5">
                   {isNotice && (
                     <span className="text-[10px] font-mono text-amber-400/90 uppercase tracking-wider">
-                      ASK Held
+                      Notice
                     </span>
                   )}
                   {isInterlock && (
                     <span className="text-[10px] font-mono text-rose-400 uppercase tracking-wider font-semibold">
-                      STOP Trip
+                      Interlock
                     </span>
                   )}
                 </div>
