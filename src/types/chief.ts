@@ -1,6 +1,5 @@
 export type StatusMessageOption =
   | "System operational"
-  | "System state observed"
   | "Attention required"
   | "Limited connectivity"
   | "Backend unavailable"
