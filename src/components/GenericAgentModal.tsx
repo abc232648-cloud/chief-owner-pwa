@@ -44,7 +44,7 @@ export const GenericAgentModal: React.FC<GenericAgentModalProps> = ({
                 />
               </div>
               <p className="text-xs text-emerald-300/60 mt-0.5">
-                {agent.domain || 'Autonomous Chief Subsystem'} • Active Workflows: {agent.activeWorkflows}
+                {agent.domain || 'Domain not reported'} • Workflows reported: {agent.activeWorkflows}
               </p>
             </div>
           </div>
@@ -78,7 +78,7 @@ export const GenericAgentModal: React.FC<GenericAgentModalProps> = ({
           {/* Telemetry Metrics Grid */}
           <div className="space-y-2">
             <h3 className="text-xs font-mono text-emerald-400 uppercase tracking-wider font-semibold">
-              Authoritative Domain Metrics
+              Chief-Reported Domain Fields
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {agent.metrics.map((m, idx) => (
@@ -114,7 +114,7 @@ export const GenericAgentModal: React.FC<GenericAgentModalProps> = ({
                   </span>
                 </div>
               ) : (
-                <p className="text-xs text-emerald-300/50">No recent events recorded in this session.</p>
+                <p className="text-xs text-emerald-300/50">No recent events reported in this view.</p>
               )}
             </div>
 
@@ -122,18 +122,18 @@ export const GenericAgentModal: React.FC<GenericAgentModalProps> = ({
             <div className="p-4 rounded-xl border border-emerald-950/80 bg-[#03140c] space-y-2">
               <span className="text-[11px] font-mono text-emerald-400 uppercase tracking-wider block font-semibold flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Policy Authority &amp; Interlocks</span>
+                <span>Policy &amp; Attention Presentation</span>
               </span>
               <div className="space-y-1.5 text-xs text-emerald-200/80">
                 <div className="flex items-center justify-between text-[11px] font-mono">
                   <span className="text-emerald-300/60">Attention items:</span>
                   <span className={agent.attentionItemsCount ? 'text-amber-400 font-bold' : 'text-emerald-400'}>
-                    {agent.attentionItemsCount || 0}
+                    {agent.attentionItemsCount ?? 'Not reported'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] font-mono">
-                  <span className="text-emerald-300/60">Policy Invariants:</span>
-                  <span className="text-emerald-400">Chief Enforced</span>
+                  <span className="text-emerald-300/60">Policy invariants:</span>
+                  <span className="text-emerald-300/70">Not reported here</span>
                 </div>
                 {agent.attentionItemsCount && agent.attentionItemsCount > 0 ? (
                   <button
@@ -156,7 +156,7 @@ export const GenericAgentModal: React.FC<GenericAgentModalProps> = ({
         {/* Footer */}
         <div className="px-6 py-3.5 border-t border-emerald-950/80 bg-[#04190e] flex items-center justify-between text-xs">
           <span className="font-mono text-[11px] text-emerald-400/60">
-            Authoritative Chief Engine Telemetry
+            Chief-Reported Presentation Data
           </span>
           <button
             onClick={onClose}
