@@ -5,6 +5,51 @@ import { ActivityEvent } from '../../types/chief';
 import { isChiefDevMode } from '../../config/devMode';
 import { getLiveCache, setLiveCache } from '../cache/readCache';
 
+interface AuditProjection {
+  id: string;
+  event_time: string;
+  category: string;
+  actor: string;
+  action: string;
+  status: string;
+}
+
+interface AuditFeed {
+  items: AuditProjection[];
+  availability: string;
+  notice: string;
+}
+
+function projectEvent(item: AuditProjection): ActivityEvent {
+  const normalized = item.status.toUpperCase();
+  const severity: ActivityEvent['severity'] =
+    normalized.includes('FAIL') || normalized.includes('ERROR')
+      ? 'failure'
+      : normalized.includes('DENIED') || normalized.includes('REJECT')
+        ? 'warning'
+        : 'nominal';
+  const eventType: ActivityEvent['eventType'] =
+    severity === 'failure'
+      ? 'failure'
+      : item.category.toLowerCase().includes('application')
+        ? 'application'
+        : undefined;
+
+  return {
+    id: 'audit-' + item.id,
+    time: item.event_time,
+    timestampFull: item.event_time,
+    isoTimestamp: item.event_time,
+    event: item.action,
+    eventType,
+    agent: item.category,
+    severity,
+    hash: 'audit-record:' + item.id,
+    actor: item.actor || undefined,
+    source: item.category
+  };
+}
+
 export class ActivityApiAdapter implements IActivityContract {
   constructor(private client: ChiefApiClient) {}
 
@@ -12,28 +57,30 @@ export class ActivityApiAdapter implements IActivityContract {
     filter?: { agent?: string; query?: string },
     signal?: AbortSignal
   ): Promise<ApiResponse<ActivityEvent[]>> {
-    const params = new URLSearchParams();
-    if (filter?.agent && filter.agent !== 'All') params.set('agent', filter.agent);
-    if (filter?.query) params.set('q', filter.query);
-    const queryString = params.toString() ? `?${params.toString()}` : '';
-
     try {
-      const res = await this.client.get<ActivityEvent[]>(`/activity${queryString}`, { signal });
-      // If unfiltered, save full baseline cache
-      if (!filter?.agent && !filter?.query) {
-        setLiveCache('activity_log', res.data, res.correlationId);
+      const res = await this.client.get<AuditFeed>('/api/ui/activity', { signal });
+      let results = res.data.items.map(projectEvent);
+
+      if (filter?.agent && filter.agent !== 'All') {
+        results = results.filter(item => item.agent === filter.agent);
       }
-      return {
-        ...res,
-        provenance: 'live'
-      };
-    } catch (err) {
-      // 1. Auth failures (401, 403) must NEVER serve previous-session cache (fail closed)
-      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) {
-        throw err;
+      if (filter?.query) {
+        const q = filter.query.toLowerCase();
+        results = results.filter(item =>
+          item.event.toLowerCase().includes(q) ||
+          item.hash.toLowerCase().includes(q) ||
+          Boolean(item.actor?.toLowerCase().includes(q)) ||
+          Boolean(item.source?.toLowerCase().includes(q))
+        );
       }
 
-      // 2. DEV mode allows isolated development mocks
+      if (!filter?.agent && !filter?.query) {
+        setLiveCache('activity_log', results, res.correlationId);
+      }
+      return { ...res, data: results, provenance: 'live' };
+    } catch (err) {
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) throw err;
+
       if (isChiefDevMode()) {
         let results = [...ISOLATED_ACTIVITY_MOCK];
         if (filter?.agent && filter.agent !== 'All') {
@@ -43,10 +90,9 @@ export class ActivityApiAdapter implements IActivityContract {
           const q = filter.query.toLowerCase();
           results = results.filter(a => a.event.toLowerCase().includes(q) || a.hash.toLowerCase().includes(q));
         }
-        return wrapIsolatedMock(results, `/activity${queryString}`);
+        return wrapIsolatedMock(results, '/api/ui/activity');
       }
 
-      // 2. Production mode: Check legitimate cache
       const cached = getLiveCache<ActivityEvent[]>('activity_log');
       if (cached) {
         let results = [...cached.data];
@@ -68,7 +114,6 @@ export class ActivityApiAdapter implements IActivityContract {
         };
       }
 
-      // 3. Production mode: Never silently substitute synthetic mock events
       throw new ChiefApiError({
         code: 'ACTIVITY_UNAVAILABLE',
         message: 'Chief activity logs are currently unavailable from backend.',
