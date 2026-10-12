@@ -5,52 +5,10 @@ import { AttentionItem } from '../../types/chief';
 import { isChiefDevMode } from '../../config/devMode';
 import { getLiveCache, setLiveCache } from '../cache/readCache';
 
-interface NotificationFeedItem {
-  event_id: string;
-  source_agent: string;
-  event_type: string;
-  severity: string;
-  title: string;
-  body: string;
-  created_at: string;
-  authority: string;
-}
-
 interface NotificationFeed {
-  items: NotificationFeedItem[];
+  items: unknown[];
   availability: string;
   notice: string;
-}
-
-function projectLevel(item: NotificationFeedItem): AttentionItem['level'] {
-  if (item.event_type.toLowerCase().includes('stop')) return 'STOP';
-  if (item.severity === 'ACTION_REQUIRED') return 'ASK';
-  if (item.severity === 'URGENT') return 'Warning';
-  return 'Information';
-}
-
-function projectItem(item: NotificationFeedItem): AttentionItem {
-  const level = projectLevel(item);
-  const color: AttentionItem['color'] =
-    level === 'STOP' ? 'red' :
-    level === 'ASK' ? 'orange' :
-    level === 'Warning' ? 'amber' : 'blue';
-
-  return {
-    id: item.event_id,
-    level,
-    title: item.title,
-    source: item.source_agent,
-    sourceAgent: item.source_agent,
-    timestamp: item.created_at,
-    description: item.body,
-    explanation: item.body,
-    color,
-    currentAuthorityState: item.authority || 'PRESENTATION_ONLY',
-    status: 'pending',
-    actionable: false,
-    policyNote: 'Presentation-only notification. Use the linked domain workspace for any authorized action.'
-  };
 }
 
 export class AttentionApiAdapter implements IAttentionContract {
@@ -59,7 +17,9 @@ export class AttentionApiAdapter implements IAttentionContract {
   public async getItems(signal?: AbortSignal): Promise<ApiResponse<AttentionItem[]>> {
     try {
       const res = await this.client.get<NotificationFeed>('/api/device-notifications/owner/feed', { signal });
-      const data = res.data.items.map(projectItem);
+      // Device notifications are presentation-only. Do not convert them into
+      // generic approval/STOP objects: those actions remain domain-owned.
+      const data: AttentionItem[] = [];
       setLiveCache('attention_items', data, res.correlationId);
       return {
         ...res,
@@ -90,7 +50,7 @@ export class AttentionApiAdapter implements IAttentionContract {
 
       throw new ChiefApiError({
         code: 'ATTENTION_UNAVAILABLE',
-        message: 'Chief attention feed is currently unavailable from backend.',
+        message: 'No generic actionable attention contract is available from Chief.',
         isNetworkError: true
       });
     }
@@ -99,7 +59,7 @@ export class AttentionApiAdapter implements IAttentionContract {
   public async approve(id: string, _signal?: AbortSignal): Promise<ApiResponse<{ approved: boolean; recordId: string }>> {
     throw new ChiefApiError({
       code: 'ATTENTION_ACTION_UNAVAILABLE',
-      message: `Notification ${id} is presentation-only; approval must use its domain-owned action surface.`,
+      message: `Attention record ${id} has no generic approval authority; use its domain-owned action surface.`,
       origin: 'client'
     });
   }
@@ -107,7 +67,7 @@ export class AttentionApiAdapter implements IAttentionContract {
   public async reject(id: string, _signal?: AbortSignal): Promise<ApiResponse<{ rejected: boolean; recordId: string }>> {
     throw new ChiefApiError({
       code: 'ATTENTION_ACTION_UNAVAILABLE',
-      message: `Notification ${id} is presentation-only; rejection must use its domain-owned action surface.`,
+      message: `Attention record ${id} has no generic rejection authority; use its domain-owned action surface.`,
       origin: 'client'
     });
   }
@@ -115,7 +75,7 @@ export class AttentionApiAdapter implements IAttentionContract {
   public async acknowledgeStop(id: string, _signal?: AbortSignal): Promise<ApiResponse<{ ticketId: string; acknowledged: boolean }>> {
     throw new ChiefApiError({
       code: 'ATTENTION_ACTION_UNAVAILABLE',
-      message: `Notification ${id} is presentation-only; STOP handling must use its domain-owned action surface.`,
+      message: `Attention record ${id} has no generic STOP authority; use its domain-owned action surface.`,
       origin: 'client'
     });
   }
