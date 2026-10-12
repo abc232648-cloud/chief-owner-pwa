@@ -58,7 +58,7 @@ function projectAgent(agent: ChiefOverviewAgent): AgentState {
     ],
     lastActivity: timestamp ? { summary, timestamp } : undefined,
     lastHeartbeat: 'Not reported',
-    activeWorkflows: null,
+    activeWorkflows: 'Not reported',
     description: agent.description,
     summary: agent.description
   };
