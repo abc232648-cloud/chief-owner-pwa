@@ -11,6 +11,8 @@ const agents = read('src/api/contracts/agents.ts');
 const attention = read('src/api/contracts/attention.ts');
 const activity = read('src/api/contracts/activity.ts');
 const activityScreen = read('src/screens/ActivityScreen.tsx');
+const activityFeed = read('src/components/ActivityFeed.tsx');
+const activityModal = read('src/components/ActivityLogModal.tsx');
 const agentModal = read('src/components/GenericAgentModal.tsx');
 
 test('Owner production adapters use current Chief presentation contracts', () => {
@@ -39,14 +41,19 @@ test('unknown system values remain explicit rather than fabricated', () => {
 });
 
 test('sanitized activity projection does not invent hashes or hidden authority', () => {
+  const presentation = [activityScreen, activityFeed, activityModal].join('\n');
   assert.doesNotMatch(activity, /audit-record:/);
   assert.match(activityScreen, /Recorded Actor:/);
   assert.match(activityScreen, /Recorded Source:/);
   assert.match(activityScreen, /Not reported/);
-  assert.doesNotMatch(activityScreen, /Authoritative Actor/);
-  assert.doesNotMatch(activityScreen, /Chief Central Engine \(Autonomous\)/);
-  assert.doesNotMatch(activityScreen, /Chief Policy Evaluation Pipeline/);
-  assert.doesNotMatch(activityScreen, /POLICY-NOMINAL/);
+  assert.match(activityModal, /Hash not reported/);
+  assert.match(activityFeed, /Read-only projection of activity fields reported by Chief/);
+  assert.doesNotMatch(presentation, /Authoritative Actor/);
+  assert.doesNotMatch(presentation, /Authoritative Audit/);
+  assert.doesNotMatch(presentation, /Cryptographically sealed/);
+  assert.doesNotMatch(presentation, /Chief Central Engine \(Autonomous\)/);
+  assert.doesNotMatch(presentation, /Chief Policy Evaluation Pipeline/);
+  assert.doesNotMatch(presentation, /POLICY-NOMINAL/);
 });
 
 test('generic agent presentation does not claim unreported policy or telemetry authority', () => {
