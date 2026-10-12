@@ -19,7 +19,7 @@ function projectStatus(data: ChiefOverview): {
 } {
   return {
     platform_state: 'Unknown',
-    status_message: data.worker_connected ? 'System state observed' : 'Attention required',
+    status_message: 'Attention required',
     metrics: {
       backend: 'Online',
       policy_engine: 'Unknown',
