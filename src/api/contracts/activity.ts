@@ -44,10 +44,17 @@ function projectEvent(item: AuditProjection): ActivityEvent {
     eventType,
     agent: item.category,
     severity,
-    hash: 'audit-record:' + item.id,
     actor: item.actor || undefined,
     source: item.category
   };
+}
+
+function matchesQuery(item: ActivityEvent, query: string): boolean {
+  const q = query.toLowerCase();
+  return item.event.toLowerCase().includes(q) ||
+    Boolean(item.hash?.toLowerCase().includes(q)) ||
+    Boolean(item.actor?.toLowerCase().includes(q)) ||
+    Boolean(item.source?.toLowerCase().includes(q));
 }
 
 export class ActivityApiAdapter implements IActivityContract {
@@ -65,13 +72,7 @@ export class ActivityApiAdapter implements IActivityContract {
         results = results.filter(item => item.agent === filter.agent);
       }
       if (filter?.query) {
-        const q = filter.query.toLowerCase();
-        results = results.filter(item =>
-          item.event.toLowerCase().includes(q) ||
-          item.hash.toLowerCase().includes(q) ||
-          Boolean(item.actor?.toLowerCase().includes(q)) ||
-          Boolean(item.source?.toLowerCase().includes(q))
-        );
+        results = results.filter(item => matchesQuery(item, filter.query!));
       }
 
       if (!filter?.agent && !filter?.query) {
@@ -87,8 +88,7 @@ export class ActivityApiAdapter implements IActivityContract {
           results = results.filter(a => a.agent === filter.agent);
         }
         if (filter?.query) {
-          const q = filter.query.toLowerCase();
-          results = results.filter(a => a.event.toLowerCase().includes(q) || a.hash.toLowerCase().includes(q));
+          results = results.filter(a => matchesQuery(a, filter.query!));
         }
         return wrapIsolatedMock(results, '/api/ui/activity');
       }
@@ -100,8 +100,7 @@ export class ActivityApiAdapter implements IActivityContract {
           results = results.filter(a => a.agent === filter.agent);
         }
         if (filter?.query) {
-          const q = filter.query.toLowerCase();
-          results = results.filter(a => a.event.toLowerCase().includes(q) || a.hash.toLowerCase().includes(q));
+          results = results.filter(a => matchesQuery(a, filter.query!));
         }
         return {
           data: results,
