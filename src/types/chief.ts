@@ -110,7 +110,7 @@ export interface ActivityEvent {
   eventType?: ActivityEventType;
   agent: string;
   severity: ActivitySeverity;
-  hash: string;
+  hash?: string;
   actor?: string;
   source?: string;
   relatedEntity?: string;
