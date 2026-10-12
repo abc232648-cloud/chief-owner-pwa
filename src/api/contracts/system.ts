@@ -5,6 +5,33 @@ import { ChiefState, StatusMessageOption, SystemMetrics } from '../../types/chie
 import { isChiefDevMode } from '../../config/devMode';
 import { getLiveCache, setLiveCache } from '../cache/readCache';
 
+interface ChiefOverview {
+  agents: Array<{ enabled?: number | boolean; running?: number | boolean }>;
+  counts: { actions: number; notifications: number };
+  worker_connected: boolean;
+  service_started_at: number | null;
+}
+
+function projectStatus(data: ChiefOverview): {
+  platform_state: ChiefState['platform_state'];
+  status_message: StatusMessageOption;
+  metrics: SystemMetrics;
+} {
+  return {
+    platform_state: 'Unknown',
+    status_message: data.worker_connected ? 'System state observed' : 'Attention required',
+    metrics: {
+      backend: 'Online',
+      policy_engine: 'Unknown',
+      sync: 'Current',
+      agents_active: data.agents.filter(agent => Boolean(agent.enabled) && Boolean(agent.running)).length,
+      uptime: 'Not reported',
+      healthScore: null,
+      lastSyncTimestamp: 'Not reported'
+    }
+  };
+}
+
 export class SystemApiAdapter implements ISystemContract {
   constructor(private client: ChiefApiClient) {}
 
@@ -14,37 +41,18 @@ export class SystemApiAdapter implements ISystemContract {
     metrics: SystemMetrics;
   }>> {
     try {
-      const res = await this.client.get<{
-        platform_state: ChiefState['platform_state'];
-        status_message: StatusMessageOption;
-        metrics: SystemMetrics;
-      }>('/system/status', { signal });
-
-      // Cache genuine live response
-      setLiveCache('system_status', res.data, res.correlationId);
-
-      return {
-        ...res,
-        provenance: 'live'
-      };
+      const res = await this.client.get<ChiefOverview>('/api/ui/overview', { signal });
+      const data = projectStatus(res.data);
+      setLiveCache('system_status', data, res.correlationId);
+      return { ...res, data, provenance: 'live' };
     } catch (err) {
-      // 1. Auth failures (401, 403) must NEVER serve previous-session cache (fail closed)
-      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) {
-        throw err;
-      }
-
-      // 2. DEV mode allows isolated development mocks clearly tagged
-      if (isChiefDevMode()) {
-        return wrapIsolatedMock(ISOLATED_SYSTEM_MOCK, '/system/status');
-      }
-
-      // 2. Production mode: Check legitimate cache
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) throw err;
+      if (isChiefDevMode()) return wrapIsolatedMock(ISOLATED_SYSTEM_MOCK, '/api/ui/overview');
       const cached = getLiveCache<{
         platform_state: ChiefState['platform_state'];
         status_message: StatusMessageOption;
         metrics: SystemMetrics;
       }>('system_status');
-
       if (cached) {
         return {
           data: cached.data,
@@ -56,8 +64,6 @@ export class SystemApiAdapter implements ISystemContract {
           provenance: 'cached'
         };
       }
-
-      // 3. Production mode: Never silently substitute synthetic mock data
       throw new ChiefApiError({
         code: 'SYSTEM_UNAVAILABLE',
         message: 'Chief system status is currently unavailable from backend.',
@@ -74,30 +80,22 @@ export class SystemApiAdapter implements ISystemContract {
     label: string;
   }>> {
     try {
-      const res = await this.client.get<{
-        healthy: boolean;
-        invariantsPassed: boolean;
-        latencyMs: number;
-        status?: 'healthy' | 'degraded' | 'unavailable';
-      }>('/system/health', { signal });
-
-      const isHealthy = res.data?.healthy === true;
-      const invariants = res.data?.invariantsPassed === true;
-      const bothPassed = isHealthy && invariants;
-
+      const res = await this.client.get<ChiefOverview>('/api/ui/overview', { signal });
       return {
         ...res,
         data: {
-          healthy: isHealthy,
-          invariantsPassed: invariants,
-          latencyMs: res.data?.latencyMs ?? 0,
-          status: bothPassed ? 'healthy' : 'degraded',
-          label: bothPassed ? 'Chief Health Verified' : 'Chief Health Degraded'
+          healthy: false,
+          invariantsPassed: false,
+          latencyMs: -1,
+          status: 'unavailable',
+          label: res.data.worker_connected
+            ? 'Worker connected; full Chief health is not exposed by this presentation contract'
+            : 'Worker connection not observed; full Chief health is unavailable'
         },
         provenance: 'live'
       };
     } catch (err) {
-      // DEV mode only: Simulated health clearly labeled
+      if (err instanceof ChiefApiError && (err.statusCode === 401 || err.statusCode === 403)) throw err;
       if (isChiefDevMode()) {
         return wrapIsolatedMock({
           healthy: true,
@@ -105,10 +103,8 @@ export class SystemApiAdapter implements ISystemContract {
           latencyMs: 14,
           status: 'healthy',
           label: 'SIMULATED HEALTH — NOT CHIEF HEALTH'
-        }, '/system/health');
+        }, '/api/ui/overview');
       }
-
-      // Production mode: Failed health check MUST NEVER become healthy or invariantsPassed: true
       return {
         data: {
           healthy: false,
